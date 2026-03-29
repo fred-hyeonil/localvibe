@@ -12,6 +12,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from .regions_store import get_region_by_id_from_db, init_region_db, load_regions_from_db, upsert_regions_to_db
+
 
 DATA_FILE_PATH = Path(__file__).resolve().parents[2] / "data" / "regions.json"
 IMAGE_CACHE_FILE_PATH = Path(__file__).resolve().parents[2] / "data" / "course_image_cache.json"
@@ -20,6 +22,7 @@ CACHE_TTL_SECONDS = 600
 DEFAULT_BASE_ENDPOINTS = [
     "https://apis.data.go.kr/6460000/jnCourseInfo",
 ]
+KTO_DEFAULT_BASE_URL = "https://apis.data.go.kr/B551011/KorService2"
 BASE_TO_LIST_METHODS = {
     "jnCourseInfo": ["getCoursePlanList", "getCourseList", "getCourseImgList"],
 }
@@ -54,6 +57,25 @@ def _stable_region_id(value: str) -> int:
 def _fallback_image_for_name(name: str) -> str:
     index = _stable_region_id(name) % len(FALLBACK_IMAGE_POOL)
     return FALLBACK_IMAGE_POOL[index]
+
+
+def _sanitize_image_url(raw_url: str) -> str:
+    image_url = (raw_url or "").strip()
+    if not image_url:
+        return ""
+
+    lowered = image_url.lower()
+    if "undefined" in lowered or "null" in lowered or "noimage" in lowered:
+        return ""
+
+    if image_url.startswith("//"):
+        image_url = f"https:{image_url}"
+    elif image_url.startswith("http://"):
+        image_url = "https://" + image_url[len("http://") :]
+
+    if not image_url.startswith("http"):
+        return ""
+    return image_url
 
 
 def _masked_key(value: str) -> str:
@@ -180,14 +202,14 @@ def _normalize_external_item(item: ET.Element, source_name: str) -> dict:
         item,
         ["contents", "description", "summary", "overview", "introduce", "expGuide", "content", "guideIntro", "fdDesc"],
     )
-    image_url = _first_text(item, ["imgUrl", "imageUrl", "originimgurl", "firstimage"])
+    image_url = _sanitize_image_url(_first_text(item, ["imgUrl", "imageUrl", "originimgurl", "firstimage"]))
     phone = _first_text(item, ["tel", "telephone", "phone", "contact"])
     category = _first_text(item, ["theme", "type", "category", "fdType"])
     use_time = _first_text(item, ["useTime", "useTm", "openTime", "timeInfo"])
 
     if not summary:
         summary = "정보를 제공 받을 수 없습니다."
-    if not image_url or not image_url.startswith("http"):
+    if not image_url:
         image_url = _fallback_image_for_name(name)
 
     recommended: list[str] = []
@@ -309,7 +331,8 @@ def _extract_course_image_map(items: list[ET.Element]) -> dict[str, str]:
         )
         if not image_url:
             image_url = _extract_first_http_url(item)
-        if not image_url or not image_url.startswith("http"):
+        image_url = _sanitize_image_url(image_url)
+        if not image_url:
             continue
 
         for candidate in _extract_candidate_keys(item):
@@ -478,6 +501,289 @@ def _fetch_course_images_for_info_ids(
     return image_map
 
 
+def _extract_json_items(payload: dict) -> list[dict]:
+    response = payload.get("response", {})
+    body = response.get("body", {})
+    items = body.get("items", {})
+    item = items.get("item", [])
+    if isinstance(item, list):
+        return [row for row in item if isinstance(row, dict)]
+    if isinstance(item, dict):
+        return [item]
+    return []
+
+
+def _fetch_json_items(
+    url: str,
+    params: dict[str, str],
+    timeout_seconds: int,
+    retry_count: int,
+    base_retry_wait: float,
+    rate_limit_wait: float,
+) -> list[dict]:
+    request_url = f"{url}?{urllib.parse.urlencode(params)}"
+    for attempt in range(1, retry_count + 1):
+        try:
+            request = urllib.request.Request(url=request_url, method="GET")
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="ignore")
+            payload = json.loads(body)
+            header = payload.get("response", {}).get("header", {})
+            result_code = str(header.get("resultCode", "")).strip()
+            result_msg = str(header.get("resultMsg", "")).strip()
+            if result_code and result_code not in {"0000", "00"}:
+                logger.warning("[KTO] api error endpoint=%s code=%s msg=%s", url, result_code, result_msg)
+                return []
+            return _extract_json_items(payload)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < retry_count:
+                time.sleep(rate_limit_wait * attempt)
+                continue
+            if attempt < retry_count:
+                time.sleep(base_retry_wait * attempt)
+                continue
+            logger.warning("[KTO] http failed endpoint=%s code=%s", url, exc.code)
+            return []
+        except Exception as exc:
+            if attempt < retry_count:
+                time.sleep(base_retry_wait * attempt)
+                continue
+            logger.warning("[KTO] request failed endpoint=%s error=%s", url, exc)
+            return []
+    return []
+
+
+def _extract_region_from_address(address: str) -> str:
+    if not address:
+        return "정보없음"
+    first = address.strip().split(" ")[0]
+    if first:
+        return first
+    return "정보없음"
+
+
+def _is_fallback_image_url(url: str) -> bool:
+    return "images.unsplash.com" in (url or "")
+
+
+KTO_CONTENT_TYPE_LABELS = {
+    "12": "관광지",
+    "14": "문화시설",
+    "15": "축제/공연",
+    "25": "여행코스",
+    "28": "레포츠",
+    "32": "숙박",
+    "38": "쇼핑",
+    "39": "음식점",
+}
+
+
+def _infer_kto_insight_fields(title: str, overview: str, content_type: str, address: str) -> tuple[list[str], list[str], list[str]]:
+    text = f"{title} {overview} {address}".lower()
+    type_label = KTO_CONTENT_TYPE_LABELS.get(content_type, "로컬 방문")
+
+    recommended: list[str] = [type_label]
+    if any(keyword in text for keyword in ["카페", "커피", "디저트"]):
+        recommended.append("카페/디저트")
+    if any(keyword in text for keyword in ["맛집", "식당", "음식", "restaurant"]):
+        recommended.append("식음료")
+    if any(keyword in text for keyword in ["바다", "해변", "해수욕", "오션"]):
+        recommended.append("해안 관광")
+    if any(keyword in text for keyword in ["산", "등산", "트레킹", "숲"]):
+        recommended.append("자연/야외")
+
+    if content_type == "39":
+        busy_hours = ["12:00-14:00", "18:00-20:00"]
+        target_customers = ["식도락 여행객", "커플/친구 방문객"]
+    elif content_type == "15":
+        busy_hours = ["19:00-22:00", "주말/행사일"]
+        target_customers = ["야간 활동 선호 방문객", "축제 참여 방문객"]
+    elif content_type == "32":
+        busy_hours = ["체크인 15:00-19:00", "주말 16:00-20:00"]
+        target_customers = ["숙박 수요 고객", "가족/단체 여행객"]
+    else:
+        busy_hours = ["주말 13:00-17:00"]
+        target_customers = ["로컬 여행객", "당일 방문객"]
+
+    return list(dict.fromkeys(recommended)), busy_hours, target_customers
+
+
+def _normalize_kto_item(item: dict, source_name: str, detail_map: Optional[dict[str, dict]] = None) -> dict:
+    content_id = str(item.get("contentid", "")).strip()
+    if not content_id:
+        return {}
+    detail = (detail_map or {}).get(content_id, {})
+    title = str(item.get("title") or detail.get("title") or "").strip()
+    if not title:
+        return {}
+
+    address = str(detail.get("addr1") or item.get("addr1") or "").strip()
+    overview = str(detail.get("overview") or item.get("overview") or "").strip()
+    if not overview:
+        overview = f"한국관광공사 공개데이터 기반 장소 정보입니다. (주소: {address})" if address else "한국관광공사 공개데이터 기반 장소 정보입니다."
+
+    image_url = _sanitize_image_url(
+        str(detail.get("firstimage") or item.get("firstimage") or item.get("firstimage2") or "").strip()
+    )
+    if not image_url:
+        image_url = _fallback_image_for_name(title)
+
+    region = _extract_region_from_address(address)
+    content_type = str(item.get("contenttypeid") or "").strip()
+    phone = str(detail.get("tel") or item.get("tel") or "").strip()
+
+    recommended, busy_hours, target_customers = _infer_kto_insight_fields(title, overview, content_type, address)
+    if phone:
+        target_customers.append(f"전화문의: {phone}")
+
+    return {
+        "id": _stable_region_id(f"kto:{content_id}"),
+        "sourceId": content_id,
+        "name": title,
+        "region": region,
+        "province": region,
+        "address": address,
+        "imageUrl": image_url,
+        "summary": f"{overview} (주소: {address})" if address and "주소:" not in overview else overview,
+        "recommendedBusinesses": list(dict.fromkeys(recommended)),
+        "busyHours": list(dict.fromkeys(busy_hours)),
+        "targetCustomers": list(dict.fromkeys(target_customers)),
+        "dataSource": source_name,
+    }
+
+
+def _dedupe_regions(rows: list[dict]) -> list[dict]:
+    deduped: dict[str, dict] = {}
+    for row in rows:
+        name_key = _normalize_name_key(str(row.get("name", "")))
+        region_key = _normalize_name_key(str(row.get("region") or row.get("province") or ""))
+        addr_key = _normalize_name_key(str(row.get("address", "")))[:20]
+        if not name_key:
+            continue
+        key = f"{name_key}|{region_key}|{addr_key}"
+        existing = deduped.get(key)
+        if not existing:
+            deduped[key] = row
+            continue
+
+        existing_image = str(existing.get("imageUrl", ""))
+        incoming_image = str(row.get("imageUrl", ""))
+        existing_summary = str(existing.get("summary", ""))
+        incoming_summary = str(row.get("summary", ""))
+
+        should_replace = False
+        if _is_fallback_image_url(existing_image) and not _is_fallback_image_url(incoming_image):
+            should_replace = True
+        elif len(incoming_summary) > len(existing_summary):
+            should_replace = True
+
+        if should_replace:
+            deduped[key] = row
+
+    return list(deduped.values())
+
+
+def _fetch_kto_regions(kto_service_key: str, timeout_seconds: int, retry_count: int, base_retry_wait: float, rate_limit_wait: float) -> list[dict]:
+    if not kto_service_key:
+        return []
+
+    base_url = os.getenv("KTO_API_BASE_URL", KTO_DEFAULT_BASE_URL).rstrip("/")
+    area_endpoint = f"{base_url}/areaBasedList2"
+    keyword_endpoint = f"{base_url}/searchKeyword2"
+    detail_endpoint = f"{base_url}/detailCommon2"
+
+    start_page = os.getenv("KTO_PAGE_NO", "1")
+    page_size = os.getenv("KTO_NUM_ROWS", "30")
+    max_items = int(os.getenv("KTO_MAX_ITEMS", "90"))
+    detail_max = int(os.getenv("KTO_DETAIL_MAX", "30"))
+    request_interval = float(os.getenv("KTO_REQUEST_INTERVAL", "0.15"))
+    area_codes = [code.strip() for code in os.getenv("KTO_AREA_CODES", "5,38").split(",") if code.strip()]
+    keywords = [kw.strip() for kw in os.getenv("KTO_KEYWORDS", "").split(",") if kw.strip()]
+    mobile_os = os.getenv("KTO_MOBILE_OS", "ETC")
+    mobile_app = os.getenv("KTO_MOBILE_APP", "LocalVibe")
+    arrange = os.getenv("KTO_ARRANGE", "Q")
+
+    common_params = {
+        "serviceKey": kto_service_key,
+        "MobileOS": mobile_os,
+        "MobileApp": mobile_app,
+        "_type": "json",
+        "numOfRows": page_size,
+        "pageNo": start_page,
+        "arrange": arrange,
+    }
+
+    collected: list[dict] = []
+    seen_content_ids: set[str] = set()
+    source_name = "한국관광공사_국문 관광정보 서비스_GW"
+
+    for area_code in area_codes:
+        params = dict(common_params)
+        params["areaCode"] = area_code
+        items = _fetch_json_items(area_endpoint, params, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
+        for item in items:
+            cid = str(item.get("contentid", "")).strip()
+            if not cid or cid in seen_content_ids:
+                continue
+            seen_content_ids.add(cid)
+            collected.append(item)
+            if len(collected) >= max_items:
+                break
+        if len(collected) >= max_items:
+            break
+        if request_interval > 0:
+            time.sleep(request_interval)
+
+    if keywords and len(collected) < max_items:
+        for keyword in keywords:
+            params = dict(common_params)
+            params["keyword"] = keyword
+            items = _fetch_json_items(keyword_endpoint, params, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
+            for item in items:
+                cid = str(item.get("contentid", "")).strip()
+                if not cid or cid in seen_content_ids:
+                    continue
+                seen_content_ids.add(cid)
+                collected.append(item)
+                if len(collected) >= max_items:
+                    break
+            if len(collected) >= max_items:
+                break
+            if request_interval > 0:
+                time.sleep(request_interval)
+
+    detail_map: dict[str, dict] = {}
+    for item in collected[:detail_max]:
+        content_id = str(item.get("contentid", "")).strip()
+        content_type_id = str(item.get("contenttypeid", "")).strip()
+        if not content_id:
+            continue
+        params = dict(common_params)
+        params.update(
+            {
+                "contentId": content_id,
+                "contentTypeId": content_type_id,
+                "defaultYN": "Y",
+                "overviewYN": "Y",
+                "firstImageYN": "Y",
+                "addrinfoYN": "Y",
+            }
+        )
+        detail_items = _fetch_json_items(detail_endpoint, params, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
+        if detail_items:
+            detail_map[content_id] = detail_items[0]
+        if request_interval > 0:
+            time.sleep(request_interval)
+
+    normalized: list[dict] = []
+    for item in collected:
+        row = _normalize_kto_item(item, source_name, detail_map)
+        if row:
+            normalized.append(row)
+    logger.info("[KTO] normalized items=%d", len(normalized))
+    return normalized
+
+
 def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_map: dict[str, str]) -> dict:
     plan_name = _first_text(plan_item, ["planName", "name", "title"])
     if not plan_name:
@@ -519,6 +825,7 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
         if mapped:
             image_url = mapped
             break
+    image_url = _sanitize_image_url(image_url)
     if not image_url:
         image_url = _fallback_image_for_name(plan_name)
 
@@ -539,8 +846,11 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
     region_id_key = f"{plan_course_id}:{plan_info_id or plan_name}"
     return {
         "id": _stable_region_id(region_id_key),
+        "sourceId": str(plan_info_id or plan_course_id or ""),
         "name": plan_name,
+        "region": plan_area or _extract_region_from_address(plan_addr),
         "province": "전남",
+        "address": address,
         "imageUrl": image_url,
         "summary": summary,
         "recommendedBusinesses": list(dict.fromkeys(recommended)),
@@ -550,7 +860,7 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
     }
 
 
-def fetch_external_regions(service_key: str) -> list[dict]:
+def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[dict]:
     endpoint_urls = _resolve_endpoint_urls()
     start_page = int(os.getenv("JN_API_PAGE_NO", "1"))
     page_size = int(os.getenv("JN_API_NUM_ROWS", "50"))
@@ -560,117 +870,117 @@ def fetch_external_regions(service_key: str) -> list[dict]:
     plan_empty_break = max(1, int(os.getenv("JN_COURSE_PLAN_EMPTY_BREAK", "4")))
     categories = [part.strip() for part in os.getenv("JN_COURSE_CATEGORIES", "봄,여름,가을,겨울").split(",") if part.strip()]
 
-    endpoint_map = {url.rstrip("/").split("/")[-1]: url for url in endpoint_urls}
-    list_endpoint = endpoint_map.get("getCourseList")
-    plan_endpoint = endpoint_map.get("getCoursePlanList")
-    img_endpoint = endpoint_map.get("getCourseImgList")
+    timeout_seconds = int(os.getenv("JN_API_TIMEOUT_SECONDS", "12"))
+    retry_count = max(1, int(os.getenv("JN_API_RETRY_COUNT", "2")))
+    base_retry_wait = float(os.getenv("JN_API_RETRY_WAIT_SECONDS", "0.4"))
+    rate_limit_wait = float(os.getenv("JN_API_429_WAIT_SECONDS", "1.2"))
 
-    if not list_endpoint or not plan_endpoint:
-        logger.warning("[COURSE] required endpoints missing list=%s plan=%s", bool(list_endpoint), bool(plan_endpoint))
-        return []
+    merged_rows: list[dict] = []
 
-    course_rows: list[dict] = []
-    seen_course_keys: set[str] = set()
-    empty_category_streak = 0
-    for category in categories:
-        list_items = _fetch_xml_items(
-            list_endpoint,
-            service_key,
-            start_page,
-            page_size,
-            extra_params={"courseCategory": category},
-        )
-        extracted = _extract_course_rows(list_items)
-        logger.info("[COURSE] list loaded category=%s count=%d", category, len(extracted))
-        if not extracted:
-            empty_category_streak += 1
-            if not course_rows and empty_category_streak >= empty_category_break:
-                logger.warning("[COURSE] list empty streak reached %d, stop early", empty_category_streak)
-                break
-            continue
+    if jn_service_key:
+        endpoint_map = {url.rstrip("/").split("/")[-1]: url for url in endpoint_urls}
+        list_endpoint = endpoint_map.get("getCourseList")
+        plan_endpoint = endpoint_map.get("getCoursePlanList")
+        img_endpoint = endpoint_map.get("getCourseImgList")
 
-        empty_category_streak = 0
-        for row in extracted:
-            course_key = row["courseKey"]
-            if course_key in seen_course_keys:
-                continue
-            seen_course_keys.add(course_key)
-            course_rows.append(row)
+        if list_endpoint and plan_endpoint:
+            course_rows: list[dict] = []
+            seen_course_keys: set[str] = set()
+            empty_category_streak = 0
+            for category in categories:
+                list_items = _fetch_xml_items(
+                    list_endpoint,
+                    jn_service_key,
+                    start_page,
+                    page_size,
+                    extra_params={"courseCategory": category},
+                )
+                extracted = _extract_course_rows(list_items)
+                logger.info("[COURSE] list loaded category=%s count=%d", category, len(extracted))
+                if not extracted:
+                    empty_category_streak += 1
+                    if not course_rows and empty_category_streak >= empty_category_break:
+                        logger.warning("[COURSE] list empty streak reached %d, stop early", empty_category_streak)
+                        break
+                    continue
 
-    if not course_rows:
-        return []
+                empty_category_streak = 0
+                for row in extracted:
+                    course_key = row["courseKey"]
+                    if course_key in seen_course_keys:
+                        continue
+                    seen_course_keys.add(course_key)
+                    course_rows.append(row)
 
-    image_map: dict[str, str] = {}
-    if img_endpoint:
-        all_course_info_ids: list[str] = []
-        for row in course_rows[:max_course_count]:
-            all_course_info_ids.extend(_split_course_info_ids(str(row.get("courseInfoIds", ""))))
-        # 중복 제거
-        all_course_info_ids = list(dict.fromkeys(all_course_info_ids))
-        cached_image_map = _load_course_image_cache()
-        image_map = dict(cached_image_map)
-        missing_info_ids = [
-            info_id
-            for info_id in all_course_info_ids
-            if _normalize_name_key(info_id) not in image_map
-        ]
-        logger.info(
-            "[COURSE] image cache hit=%d missing=%d",
-            len(all_course_info_ids) - len(missing_info_ids),
-            len(missing_info_ids),
-        )
-        if missing_info_ids:
-            fetched_image_map = _fetch_course_images_for_info_ids(
-                img_endpoint,
-                service_key,
-                start_page,
-                page_size,
-                missing_info_ids,
-            )
-            if fetched_image_map:
-                image_map.update(fetched_image_map)
-                _save_course_image_cache(image_map)
+            image_map: dict[str, str] = {}
+            if img_endpoint and course_rows:
+                all_course_info_ids: list[str] = []
+                for row in course_rows[:max_course_count]:
+                    all_course_info_ids.extend(_split_course_info_ids(str(row.get("courseInfoIds", ""))))
+                all_course_info_ids = list(dict.fromkeys(all_course_info_ids))
+                cached_image_map = _load_course_image_cache()
+                image_map = dict(cached_image_map)
+                missing_info_ids = [
+                    info_id
+                    for info_id in all_course_info_ids
+                    if _normalize_name_key(info_id) not in image_map
+                ]
+                logger.info(
+                    "[COURSE] image cache hit=%d missing=%d",
+                    len(all_course_info_ids) - len(missing_info_ids),
+                    len(missing_info_ids),
+                )
+                if missing_info_ids:
+                    fetched_image_map = _fetch_course_images_for_info_ids(
+                        img_endpoint,
+                        jn_service_key,
+                        start_page,
+                        page_size,
+                        missing_info_ids,
+                    )
+                    if fetched_image_map:
+                        image_map.update(fetched_image_map)
+                        _save_course_image_cache(image_map)
 
-    merged: list[dict] = []
-    seen_keys: set[str] = set()
-    plan_empty_streak = 0
-    for course_row in course_rows[:max_course_count]:
-        course_key = course_row["courseKey"]
-        try:
-            plan_items = _fetch_xml_items(
-                plan_endpoint,
-                service_key,
-                start_page,
-                page_size,
-                extra_params={"planCourseId": course_key},
-            )
-            logger.info("[COURSE] plan loaded courseKey=%s count=%d", course_key, len(plan_items))
-        except Exception:
-            logger.exception("[COURSE] plan endpoint fetch failed courseKey=%s", course_key)
-            continue
-
-        if not plan_items:
-            plan_empty_streak += 1
-            if plan_empty_streak >= plan_empty_break:
-                logger.warning("[COURSE] plan empty streak reached %d, stop early", plan_empty_streak)
-                break
-        else:
+            seen_keys: set[str] = set()
             plan_empty_streak = 0
+            for course_row in course_rows[:max_course_count]:
+                course_key = course_row["courseKey"]
+                plan_items = _fetch_xml_items(
+                    plan_endpoint,
+                    jn_service_key,
+                    start_page,
+                    page_size,
+                    extra_params={"planCourseId": course_key},
+                )
+                logger.info("[COURSE] plan loaded courseKey=%s count=%d", course_key, len(plan_items))
+                if not plan_items:
+                    plan_empty_streak += 1
+                    if plan_empty_streak >= plan_empty_break:
+                        logger.warning("[COURSE] plan empty streak reached %d, stop early", plan_empty_streak)
+                        break
+                else:
+                    plan_empty_streak = 0
 
-        for plan_item in plan_items:
-            region = _build_region_from_plan(plan_item, course_row, image_map)
-            if not region:
-                continue
-            dedupe_key = f"{region.get('name','')}|{region.get('summary','')[:40]}"
-            if dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
-            merged.append(region)
+                for plan_item in plan_items:
+                    region = _build_region_from_plan(plan_item, course_row, image_map)
+                    if not region:
+                        continue
+                    dedupe_key = f"{region.get('name','')}|{region.get('summary','')[:40]}"
+                    if dedupe_key in seen_keys:
+                        continue
+                    seen_keys.add(dedupe_key)
+                    merged_rows.append(region)
 
-        if plan_request_interval > 0:
-            time.sleep(plan_request_interval)
+                if plan_request_interval > 0:
+                    time.sleep(plan_request_interval)
+        else:
+            logger.warning("[COURSE] required endpoints missing list=%s plan=%s", bool(list_endpoint), bool(plan_endpoint))
 
-    return merged
+    kto_rows = _fetch_kto_regions(kto_service_key, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
+    merged_rows.extend(kto_rows)
+
+    return _dedupe_regions(merged_rows)
 
 
 def _build_id_index(rows: list[dict]) -> dict[int, dict]:
@@ -686,6 +996,8 @@ def _build_id_index(rows: list[dict]) -> dict[int, dict]:
 
 def load_regions() -> list[dict]:
     now = time.time()
+    init_region_db()
+    db_rows = load_regions_from_db()
     signature = "|".join(
         [
             os.getenv("JN_API_ENDPOINT_URLS", ""),
@@ -693,6 +1005,10 @@ def load_regions() -> list[dict]:
             os.getenv("JN_API_PAGE_NO", ""),
             os.getenv("JN_API_TIMEOUT_SECONDS", ""),
             os.getenv("JN_LEPORTS_SERVICE_KEY", "")[:8],
+            os.getenv("KTO_SERVICE_KEY", "")[:8],
+            os.getenv("KTO_API_BASE_URL", ""),
+            os.getenv("KTO_AREA_CODES", ""),
+            os.getenv("KTO_KEYWORDS", ""),
         ]
     )
     cached = _runtime_cache.get("regions")
@@ -705,10 +1021,20 @@ def load_regions() -> list[dict]:
         return cached  # type: ignore[return-value]
 
     fallback_regions = load_local_regions()
-    service_key = os.getenv("JN_LEPORTS_SERVICE_KEY", "").strip()
+    jn_service_key = os.getenv("JN_LEPORTS_SERVICE_KEY", "").strip()
+    kto_service_key = os.getenv("KTO_SERVICE_KEY", "").strip()
 
-    if not service_key:
-        logger.info("[LEPORTS] service key missing -> fallback local count=%d", len(fallback_regions))
+    if not jn_service_key and not kto_service_key:
+        if db_rows:
+            logger.info("[LEPORTS] external keys missing -> use db count=%d", len(db_rows))
+            _runtime_cache["regions"] = db_rows
+            _runtime_cache["loaded_at"] = now
+            _runtime_cache["signature"] = signature
+            _runtime_cache["id_index"] = _build_id_index(db_rows)
+            return db_rows
+
+        logger.info("[LEPORTS] all external keys missing -> fallback local count=%d", len(fallback_regions))
+        upsert_regions_to_db(fallback_regions)
         _runtime_cache["regions"] = fallback_regions
         _runtime_cache["loaded_at"] = now
         _runtime_cache["signature"] = signature
@@ -718,6 +1044,7 @@ def load_regions() -> list[dict]:
     cached_external_regions = _load_external_regions_cache(signature, allow_stale=False)
     if cached_external_regions:
         logger.info("[LEPORTS] external disk cache hit count=%d", len(cached_external_regions))
+        upsert_regions_to_db(cached_external_regions)
         _runtime_cache["regions"] = cached_external_regions
         _runtime_cache["loaded_at"] = now
         _runtime_cache["signature"] = signature
@@ -727,9 +1054,17 @@ def load_regions() -> list[dict]:
     cooldown_until = float(_runtime_cache.get("cooldown_until", 0.0))
     if now < cooldown_until:
         logger.warning("[LEPORTS] in 429 cooldown for %.1fs", cooldown_until - now)
+        if db_rows:
+            logger.info("[LEPORTS] 429 cooldown -> use db count=%d", len(db_rows))
+            _runtime_cache["regions"] = db_rows
+            _runtime_cache["loaded_at"] = now
+            _runtime_cache["signature"] = signature
+            _runtime_cache["id_index"] = _build_id_index(db_rows)
+            return db_rows
         stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
         if stale_external_regions:
             logger.info("[LEPORTS] external stale cache hit count=%d", len(stale_external_regions))
+            upsert_regions_to_db(stale_external_regions)
             _runtime_cache["regions"] = stale_external_regions
             _runtime_cache["loaded_at"] = now
             _runtime_cache["signature"] = signature
@@ -753,6 +1088,7 @@ def load_regions() -> list[dict]:
         cached_external_regions = _load_external_regions_cache(signature, allow_stale=False)
         if cached_external_regions:
             logger.info("[LEPORTS] external disk cache hit (post-lock) count=%d", len(cached_external_regions))
+            upsert_regions_to_db(cached_external_regions)
             _runtime_cache["regions"] = cached_external_regions
             _runtime_cache["loaded_at"] = now
             _runtime_cache["signature"] = signature
@@ -762,8 +1098,15 @@ def load_regions() -> list[dict]:
         cooldown_until = float(_runtime_cache.get("cooldown_until", 0.0))
         if now < cooldown_until:
             logger.warning("[LEPORTS] in 429 cooldown (post-lock) for %.1fs", cooldown_until - now)
+            if db_rows:
+                _runtime_cache["regions"] = db_rows
+                _runtime_cache["loaded_at"] = now
+                _runtime_cache["signature"] = signature
+                _runtime_cache["id_index"] = _build_id_index(db_rows)
+                return db_rows
             stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
             if stale_external_regions:
+                upsert_regions_to_db(stale_external_regions)
                 _runtime_cache["regions"] = stale_external_regions
                 _runtime_cache["loaded_at"] = now
                 _runtime_cache["signature"] = signature
@@ -776,9 +1119,10 @@ def load_regions() -> list[dict]:
             return fallback_regions
 
         try:
-            external_regions = fetch_external_regions(service_key)
+            external_regions = fetch_external_regions(jn_service_key, kto_service_key)
             if external_regions:
                 logger.info("[LEPORTS] external data loaded count=%d", len(external_regions))
+                upsert_regions_to_db(external_regions)
                 _runtime_cache["regions"] = external_regions
                 _runtime_cache["loaded_at"] = now
                 _runtime_cache["signature"] = signature
@@ -792,13 +1136,23 @@ def load_regions() -> list[dict]:
     stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
     if stale_external_regions:
         logger.info("[LEPORTS] external stale cache hit count=%d", len(stale_external_regions))
+        upsert_regions_to_db(stale_external_regions)
         _runtime_cache["regions"] = stale_external_regions
         _runtime_cache["loaded_at"] = now
         _runtime_cache["signature"] = signature
         _runtime_cache["id_index"] = _build_id_index(stale_external_regions)
         return stale_external_regions
 
+    if db_rows:
+        logger.info("[LEPORTS] external empty -> use db count=%d", len(db_rows))
+        _runtime_cache["regions"] = db_rows
+        _runtime_cache["loaded_at"] = now
+        _runtime_cache["signature"] = signature
+        _runtime_cache["id_index"] = _build_id_index(db_rows)
+        return db_rows
+
     logger.info("[LEPORTS] external empty -> fallback local count=%d", len(fallback_regions))
+    upsert_regions_to_db(fallback_regions)
     _runtime_cache["regions"] = fallback_regions
     _runtime_cache["loaded_at"] = now
     _runtime_cache["signature"] = signature
@@ -820,6 +1174,10 @@ def get_region_by_id(region_id: int) -> Optional[dict]:
                 return row
         except Exception:
             continue
+
+    row = get_region_by_id_from_db(region_id)
+    if row:
+        return row
 
     fallback_rows = load_local_regions()
     for row in fallback_rows:

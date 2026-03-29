@@ -4,6 +4,67 @@ from app.repositories import get_region_by_id, load_regions
 from app.schemas import Region, RegionInsight
 
 
+KTO_CONTENT_TYPE_LABELS = {
+    "12": "관광지",
+    "14": "문화시설",
+    "15": "축제/공연",
+    "25": "여행코스",
+    "28": "레포츠",
+    "32": "숙박",
+    "38": "쇼핑",
+    "39": "음식점",
+}
+
+
+def _fill_missing_insight_fields(row: dict) -> dict:
+    enriched = dict(row)
+    source = str(enriched.get("dataSource") or "")
+    if "한국관광공사" not in source:
+        return enriched
+
+    name = str(enriched.get("name") or "")
+    summary = str(enriched.get("summary") or "")
+    text = f"{name} {summary}".lower()
+
+    current_recommended = enriched.get("recommendedBusinesses") or []
+    if isinstance(current_recommended, list):
+        normalized_recommended: list[str] = []
+        for item in current_recommended:
+            value = str(item).strip()
+            normalized_recommended.append(KTO_CONTENT_TYPE_LABELS.get(value, value))
+        enriched["recommendedBusinesses"] = [value for value in normalized_recommended if value]
+
+    if not enriched.get("recommendedBusinesses"):
+        rec = ["로컬 관광"]
+        if any(keyword in text for keyword in ["카페", "커피", "디저트"]):
+            rec.append("카페/디저트")
+        if any(keyword in text for keyword in ["맛집", "식당", "음식"]):
+            rec.append("식음료")
+        if any(keyword in text for keyword in ["바다", "해변", "야경", "오션"]):
+            rec.append("경관/야경")
+        enriched["recommendedBusinesses"] = list(dict.fromkeys(rec))
+
+    if not enriched.get("busyHours"):
+        if any(keyword in text for keyword in ["식당", "맛집", "카페", "디저트"]):
+            enriched["busyHours"] = ["12:00-14:00", "18:00-20:00"]
+        else:
+            enriched["busyHours"] = ["주말 13:00-17:00"]
+
+    if not enriched.get("targetCustomers"):
+        targets = ["로컬 여행객", "당일 방문객"]
+        if any(keyword in text for keyword in ["가족", "키즈", "아이"]):
+            targets.append("가족 단위 고객")
+        if any(keyword in text for keyword in ["커플", "데이트", "야경"]):
+            targets.append("커플/친구 방문객")
+        enriched["targetCustomers"] = list(dict.fromkeys(targets))
+
+    if not summary or summary == "정보를 제공 받을 수 없습니다.":
+        address = str(enriched.get("address") or "").strip()
+        enriched["summary"] = f"한국관광공사 공개데이터 기반 장소 정보입니다. (주소: {address})" if address else "한국관광공사 공개데이터 기반 장소 정보입니다."
+
+    return enriched
+
+
 def list_regions() -> list[Region]:
     region_rows = load_regions()
     return [
@@ -23,4 +84,4 @@ def get_region_insight(region_id: int) -> RegionInsight:
     if not matched:
         raise HTTPException(status_code=404, detail="Region not found")
 
-    return RegionInsight(**matched)
+    return RegionInsight(**_fill_missing_insight_fields(matched))

@@ -40,6 +40,7 @@ export default function RegionModal({ region, isLoading, onClose }) {
           alt={region.name}
           className="modal-image"
           onError={(event) => {
+            event.currentTarget.onerror = null;
             event.currentTarget.src = MODAL_IMAGE_FALLBACK;
           }}
         />

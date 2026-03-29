@@ -13,6 +13,7 @@ export default function RegionGallery({ regions, onSelect }) {
                 className="region-image"
                 loading="lazy"
                 onError={(event) => {
+                  event.currentTarget.onerror = null;
                   event.currentTarget.src = CARD_IMAGE_FALLBACK;
                 }}
               />

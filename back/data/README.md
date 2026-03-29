@@ -8,6 +8,9 @@
   각 엔드포인트 데이터를 병합한 뒤 중복 제거하여 사용합니다.
 - `JN_API_ENDPOINT_URLS`에 base URL을 넣으면 list 상세기능으로 자동 확장됩니다.
   - `.../jnCourseInfo` -> `/getCoursePlanList`, `/getCourseList`, `/getCourseImgList`
+- `KTO_SERVICE_KEY`를 설정하면 한국관광공사 KorService2(`areaBasedList2`, `searchKeyword2`, `detailCommon2`)를 함께 수집합니다.
+- KorService2 데이터는 `KTO_AREA_CODES`, `KTO_KEYWORDS` 기준으로 조회되며, 공통 스키마로 정규화 후 기존 데이터와 통합됩니다.
+- 통합 시 `이름 + 지역 + 주소` 유사 키로 중복 제거를 수행합니다.
 - `JN_COURSE_CATEGORIES`로 `getCourseList` 계절 카테고리를 지정할 수 있습니다.
 - `JN_COURSE_PLAN_MAX`로 코스 상세 조회 최대 건수를 제한합니다.
 - `JN_COURSE_PLAN_REQUEST_INTERVAL`로 코스 상세 API 요청 간격(초)을 설정합니다.
@@ -28,6 +31,8 @@
 - API가 429로 막혀도 캐시가 살아있는 동안에는 기존 이미지를 계속 사용합니다.
 `external_regions_cache.json`은 마지막으로 성공한 외부 지역 목록을 저장합니다.
 - API가 429로 막혀도 캐시가 살아있는 동안에는 목록/이미지를 계속 사용합니다.
+`localvibe.db`는 정규화된 통합 지역 데이터를 저장하는 로컬 DB입니다.
+- 외부 API에서 수집한 결과를 upsert로 저장하고, API 실패 시 DB 데이터를 우선 재사용합니다.
 
 필수 필드:
 - `id` (number)
@@ -41,3 +46,6 @@
 선택 필드:
 - `province`
 - `dataSource`
+- `sourceId`
+- `region`
+- `address`

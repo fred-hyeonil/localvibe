@@ -8,12 +8,64 @@ import { defaultRegions } from "./data/defaultRegions";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const FEED_SIZE = 9;
 
+function normalizeTextKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function normalizeImageKey(imageUrl) {
+  const value = String(imageUrl || "").trim().toLowerCase();
+  if (!value) {
+    return "";
+  }
+  return value.replace(/^https?:/, "");
+}
+
 function pickFeedItems(items, size = FEED_SIZE) {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
   }
+
   const shuffled = [...items].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, size);
+  const picked = [];
+  const usedImageKeys = new Set();
+  const usedNameKeys = new Set();
+
+  for (const item of shuffled) {
+    const nameKey = normalizeTextKey(item?.name);
+    const imageKey = normalizeImageKey(item?.imageUrl);
+    if (!nameKey || usedNameKeys.has(nameKey)) {
+      continue;
+    }
+    if (imageKey && usedImageKeys.has(imageKey)) {
+      continue;
+    }
+    picked.push(item);
+    usedNameKeys.add(nameKey);
+    if (imageKey) {
+      usedImageKeys.add(imageKey);
+    }
+    if (picked.length >= size) {
+      return picked;
+    }
+  }
+
+  // 후보가 부족할 때는 이름 중복만 막고 채웁니다.
+  for (const item of shuffled) {
+    const nameKey = normalizeTextKey(item?.name);
+    if (!nameKey || usedNameKeys.has(nameKey)) {
+      continue;
+    }
+    picked.push(item);
+    usedNameKeys.add(nameKey);
+    if (picked.length >= size) {
+      break;
+    }
+  }
+
+  return picked.slice(0, size);
 }
 
 export default function App() {
@@ -99,10 +151,28 @@ export default function App() {
     if (selected.length === 0) {
       return;
     }
-    const selectedIdSet = new Set(selected.map((item) => item.id));
+    const uniqueSelected = [];
+    const selectedIdSet = new Set();
+    for (const item of selected) {
+      if (selectedIdSet.has(item.id)) {
+        continue;
+      }
+      uniqueSelected.push(item);
+      selectedIdSet.add(item.id);
+      if (uniqueSelected.length >= FEED_SIZE) {
+        break;
+      }
+    }
+
+    if (uniqueSelected.length >= FEED_SIZE) {
+      setDisplayedRegions(uniqueSelected.slice(0, FEED_SIZE));
+      return;
+    }
+
     const remaining = regions.filter((item) => !selectedIdSet.has(item.id));
-    const shuffledRemaining = [...remaining].sort(() => Math.random() - 0.5);
-    setDisplayedRegions([...selected, ...shuffledRemaining].slice(0, FEED_SIZE));
+    const fillCount = FEED_SIZE - uniqueSelected.length;
+    const filler = pickFeedItems(remaining, fillCount);
+    setDisplayedRegions([...uniqueSelected, ...filler].slice(0, FEED_SIZE));
   };
 
   return (
