@@ -208,6 +208,53 @@ body {
   color: #5d6575;
 }
 
+.modal-summary-details {
+  margin: 8px 0 12px;
+}
+
+.modal-summary-details summary {
+  cursor: pointer;
+  color: #3856c8;
+  font-weight: 600;
+}
+
+.modal-summary-details p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.kakao-map-wrapper {
+  margin: 12px 0 14px;
+  border: 1px solid #e6e9f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.kakao-map-wrapper h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.kakao-map-address {
+  margin: 0 0 10px;
+  color: #5d6575;
+  font-size: 13px;
+}
+
+.kakao-map-canvas {
+  width: 100%;
+  height: 260px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kakao-map-error {
+  margin: 0;
+  color: #6a7282;
+  font-size: 14px;
+}
+
 .insight-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

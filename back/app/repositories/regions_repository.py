@@ -12,12 +12,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from .regions_cache import (
+    load_course_image_cache,
+    load_external_regions_cache,
+    save_course_image_cache,
+    save_external_regions_cache,
+)
 from .regions_store import get_region_by_id_from_db, init_region_db, load_regions_from_db, upsert_regions_to_db
 
 
 DATA_FILE_PATH = Path(__file__).resolve().parents[2] / "data" / "regions.json"
-IMAGE_CACHE_FILE_PATH = Path(__file__).resolve().parents[2] / "data" / "course_image_cache.json"
-EXTERNAL_CACHE_FILE_PATH = Path(__file__).resolve().parents[2] / "data" / "external_regions_cache.json"
 CACHE_TTL_SECONDS = 600
 DEFAULT_BASE_ENDPOINTS = [
     "https://apis.data.go.kr/6460000/jnCourseInfo",
@@ -104,17 +108,6 @@ def _resolve_endpoint_urls() -> list[str]:
     return resolved
 
 
-def _source_name_from_url(url: str) -> str:
-    endpoint_name = url.rstrip("/").split("/")[-1]
-    if endpoint_name == "getCoursePlanList":
-        return "전라남도_남도여행길잡이_테마여행 코스 정보"
-    if endpoint_name == "getCourseList":
-        return "전라남도_남도여행길잡이_계절별 테마여행 목록"
-    if endpoint_name == "getCourseImgList":
-        return "전라남도_남도여행길잡이_테마여행 이미지 목록"
-    return f"전라남도_남도여행길잡이_{endpoint_name}"
-
-
 def _normalize_name_key(value: str) -> str:
     return "".join(ch for ch in value.lower() if ch.isalnum() or ("\uac00" <= ch <= "\ud7a3"))
 
@@ -175,62 +168,6 @@ def _first_text(item: ET.Element, keys: list[str]) -> str:
         if node is not None and node.text and node.text.strip():
             return node.text.strip()
     return ""
-
-
-def _normalize_external_item(item: ET.Element, source_name: str) -> dict:
-    name = _first_text(
-        item,
-        [
-            "title",
-            "name",
-            "leportsNm",
-            "tourNm",
-            "touristNm",
-            "accomNm",
-            "foodNm",
-            "fdNm",
-            "guideNm",
-            "bookNm",
-            "placeNm",
-        ],
-    )
-    if not name:
-        return {}
-
-    address = _first_text(item, ["addr", "address", "roadAddr", "addr1", "location", "jibunAddr", "regionAddr"])
-    summary = _first_text(
-        item,
-        ["contents", "description", "summary", "overview", "introduce", "expGuide", "content", "guideIntro", "fdDesc"],
-    )
-    image_url = _sanitize_image_url(_first_text(item, ["imgUrl", "imageUrl", "originimgurl", "firstimage"]))
-    phone = _first_text(item, ["tel", "telephone", "phone", "contact"])
-    category = _first_text(item, ["theme", "type", "category", "fdType"])
-    use_time = _first_text(item, ["useTime", "useTm", "openTime", "timeInfo"])
-
-    if not summary:
-        summary = "정보를 제공 받을 수 없습니다."
-    if not image_url:
-        image_url = _fallback_image_for_name(name)
-
-    recommended: list[str] = []
-    if category:
-        recommended.append(category)
-    if "먹거리" in source_name:
-        recommended.append("먹거리 탐방")
-    if "코스" in source_name or "가이드북" in source_name:
-        recommended.append("여행 코스")
-
-    return {
-        "id": _stable_region_id(name),
-        "name": name,
-        "province": "전남",
-        "imageUrl": image_url,
-        "summary": f"{summary} (주소: {address})" if address else summary,
-        "recommendedBusinesses": list(dict.fromkeys(recommended)),
-        "busyHours": [use_time] if use_time else [],
-        "targetCustomers": ["전화문의: " + phone] if phone else [],
-        "dataSource": source_name,
-    }
 
 
 @lru_cache(maxsize=1)
@@ -322,24 +259,6 @@ def _fetch_xml_items(
     return []
 
 
-def _extract_course_image_map(items: list[ET.Element]) -> dict[str, str]:
-    image_map: dict[str, str] = {}
-    for item in items:
-        image_url = _first_text(
-            item,
-            ["imgUrl", "imageUrl", "originimgurl", "firstimage", "imgPath", "fileUrl"],
-        )
-        if not image_url:
-            image_url = _extract_first_http_url(item)
-        image_url = _sanitize_image_url(image_url)
-        if not image_url:
-            continue
-
-        for candidate in _extract_candidate_keys(item):
-            image_map[_normalize_name_key(candidate)] = image_url
-    return image_map
-
-
 def _extract_course_rows(items: list[ET.Element]) -> list[dict]:
     rows: list[dict] = []
     for item in items:
@@ -367,78 +286,6 @@ def _split_course_info_ids(value: str) -> list[str]:
     if not value:
         return []
     return [part.strip() for part in value.split(",") if part.strip()]
-
-
-def _load_course_image_cache() -> dict[str, str]:
-    ttl_seconds = int(os.getenv("JN_COURSE_IMG_CACHE_TTL_SECONDS", "86400"))
-    if ttl_seconds <= 0 or not IMAGE_CACHE_FILE_PATH.exists():
-        return {}
-
-    try:
-        with IMAGE_CACHE_FILE_PATH.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
-        saved_at = float(payload.get("saved_at", 0))
-        if (time.time() - saved_at) > ttl_seconds:
-            return {}
-        items = payload.get("items", {})
-        if not isinstance(items, dict):
-            return {}
-        return {str(key): str(value) for key, value in items.items() if str(value).startswith("http")}
-    except Exception:
-        logger.warning("[COURSE] image cache read failed")
-        return {}
-
-
-def _save_course_image_cache(image_map: dict[str, str]) -> None:
-    if not image_map:
-        return
-    try:
-        IMAGE_CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"saved_at": time.time(), "items": image_map}
-        with IMAGE_CACHE_FILE_PATH.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False)
-    except Exception:
-        logger.warning("[COURSE] image cache write failed")
-
-
-def _load_external_regions_cache(signature: str, allow_stale: bool = False) -> list[dict]:
-    if not EXTERNAL_CACHE_FILE_PATH.exists():
-        return []
-
-    ttl_seconds = int(os.getenv("JN_EXTERNAL_CACHE_TTL_SECONDS", "21600"))
-    stale_seconds = int(os.getenv("JN_EXTERNAL_CACHE_STALE_SECONDS", "259200"))
-    max_age = stale_seconds if allow_stale else ttl_seconds
-    if max_age <= 0:
-        return []
-
-    try:
-        with EXTERNAL_CACHE_FILE_PATH.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
-        saved_at = float(payload.get("saved_at", 0))
-        cached_signature = str(payload.get("signature", ""))
-        if cached_signature and cached_signature != signature:
-            return []
-        if (time.time() - saved_at) > max_age:
-            return []
-        rows = payload.get("rows", [])
-        if isinstance(rows, list):
-            return rows
-    except Exception:
-        logger.warning("[LEPORTS] external cache read failed")
-
-    return []
-
-
-def _save_external_regions_cache(signature: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    try:
-        EXTERNAL_CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"saved_at": time.time(), "signature": signature, "rows": rows}
-        with EXTERNAL_CACHE_FILE_PATH.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False)
-    except Exception:
-        logger.warning("[LEPORTS] external cache write failed")
 
 
 def _fetch_course_images_for_info_ids(
@@ -918,7 +765,7 @@ def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[di
                 for row in course_rows[:max_course_count]:
                     all_course_info_ids.extend(_split_course_info_ids(str(row.get("courseInfoIds", ""))))
                 all_course_info_ids = list(dict.fromkeys(all_course_info_ids))
-                cached_image_map = _load_course_image_cache()
+                cached_image_map = load_course_image_cache()
                 image_map = dict(cached_image_map)
                 missing_info_ids = [
                     info_id
@@ -940,7 +787,7 @@ def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[di
                     )
                     if fetched_image_map:
                         image_map.update(fetched_image_map)
-                        _save_course_image_cache(image_map)
+                        save_course_image_cache(image_map)
 
             seen_keys: set[str] = set()
             plan_empty_streak = 0
@@ -1041,7 +888,7 @@ def load_regions() -> list[dict]:
         _runtime_cache["id_index"] = _build_id_index(fallback_regions)
         return fallback_regions
 
-    cached_external_regions = _load_external_regions_cache(signature, allow_stale=False)
+    cached_external_regions = load_external_regions_cache(signature, allow_stale=False)
     if cached_external_regions:
         logger.info("[LEPORTS] external disk cache hit count=%d", len(cached_external_regions))
         upsert_regions_to_db(cached_external_regions)
@@ -1061,7 +908,7 @@ def load_regions() -> list[dict]:
             _runtime_cache["signature"] = signature
             _runtime_cache["id_index"] = _build_id_index(db_rows)
             return db_rows
-        stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
+        stale_external_regions = load_external_regions_cache(signature, allow_stale=True)
         if stale_external_regions:
             logger.info("[LEPORTS] external stale cache hit count=%d", len(stale_external_regions))
             upsert_regions_to_db(stale_external_regions)
@@ -1085,7 +932,7 @@ def load_regions() -> list[dict]:
         if cached and cached_signature == signature and (now - loaded_at) < CACHE_TTL_SECONDS:
             return cached  # type: ignore[return-value]
 
-        cached_external_regions = _load_external_regions_cache(signature, allow_stale=False)
+        cached_external_regions = load_external_regions_cache(signature, allow_stale=False)
         if cached_external_regions:
             logger.info("[LEPORTS] external disk cache hit (post-lock) count=%d", len(cached_external_regions))
             upsert_regions_to_db(cached_external_regions)
@@ -1104,7 +951,7 @@ def load_regions() -> list[dict]:
                 _runtime_cache["signature"] = signature
                 _runtime_cache["id_index"] = _build_id_index(db_rows)
                 return db_rows
-            stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
+            stale_external_regions = load_external_regions_cache(signature, allow_stale=True)
             if stale_external_regions:
                 upsert_regions_to_db(stale_external_regions)
                 _runtime_cache["regions"] = stale_external_regions
@@ -1127,13 +974,13 @@ def load_regions() -> list[dict]:
                 _runtime_cache["loaded_at"] = now
                 _runtime_cache["signature"] = signature
                 _runtime_cache["id_index"] = _build_id_index(external_regions)
-                _save_external_regions_cache(signature, external_regions)
+                save_external_regions_cache(signature, external_regions)
                 return external_regions
         except Exception:
             # 외부 API가 실패해도 서비스가 끊기지 않도록 로컬 데이터로 폴백합니다.
             logger.exception("[LEPORTS] external fetch failed -> fallback local")
 
-    stale_external_regions = _load_external_regions_cache(signature, allow_stale=True)
+    stale_external_regions = load_external_regions_cache(signature, allow_stale=True)
     if stale_external_regions:
         logger.info("[LEPORTS] external stale cache hit count=%d", len(stale_external_regions))
         upsert_regions_to_db(stale_external_regions)

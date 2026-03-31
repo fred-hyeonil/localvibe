@@ -1,7 +1,10 @@
 from fastapi import HTTPException
 
 from app.repositories import get_region_by_id, load_regions
+from app.repositories.regions_store import update_region_coordinates_in_db, update_region_summary_short_in_db
 from app.schemas import Region, RegionInsight
+from app.services.geocode_service import geocode_address_with_kakao
+from app.services.summary_service import summarize_korean_text
 
 
 KTO_CONTENT_TYPE_LABELS = {
@@ -73,6 +76,13 @@ def list_regions() -> list[Region]:
             name=row["name"],
             imageUrl=row["imageUrl"],
             summary=row["summary"],
+            summaryShort=row.get("summaryShort"),
+            address=row.get("address"),
+            latitude=row.get("latitude"),
+            longitude=row.get("longitude"),
+            region=row.get("region"),
+            province=row.get("province"),
+            sourceId=row.get("sourceId"),
             dataSource=row.get("dataSource"),
         )
         for row in region_rows
@@ -84,4 +94,28 @@ def get_region_insight(region_id: int) -> RegionInsight:
     if not matched:
         raise HTTPException(status_code=404, detail="Region not found")
 
-    return RegionInsight(**_fill_missing_insight_fields(matched))
+    enriched = _fill_missing_insight_fields(matched)
+    summary_short = str(enriched.get("summaryShort") or "").strip()
+    if not summary_short:
+        summary_short = summarize_korean_text(str(enriched.get("summary") or ""), max_len=100)
+        enriched["summaryShort"] = summary_short
+        if summary_short:
+            try:
+                update_region_summary_short_in_db(int(enriched["id"]), summary_short)
+            except Exception:
+                pass
+
+    latitude = enriched.get("latitude")
+    longitude = enriched.get("longitude")
+    if (latitude is None or longitude is None) and str(enriched.get("address") or "").strip():
+        coords = geocode_address_with_kakao(str(enriched.get("address") or ""))
+        if coords:
+            lat, lng = coords
+            enriched["latitude"] = lat
+            enriched["longitude"] = lng
+            try:
+                update_region_coordinates_in_db(int(enriched["id"]), lat, lng)
+            except Exception:
+                pass
+
+    return RegionInsight(**enriched)

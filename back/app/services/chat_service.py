@@ -29,28 +29,13 @@ GENERIC_QUERY_TOKENS = {
     "해주세요",
     "맞아",
     "근처",
-    "당일",
-    "당일치기",
-    "원데이",
-    "하루",
-}
-REGION_HINTS = {
-    "광주": {"광주", "광주광역시"},
-    "전남": {"전남", "전라남도"},
-    "여수": {"여수"},
-    "순천": {"순천"},
-    "목포": {"목포"},
-    "담양": {"담양"},
-    "신안": {"신안"},
-    "나주": {"나주"},
-    "광양": {"광양"},
-    "해남": {"해남"},
 }
 SOURCE_WEIGHT_KEYWORDS = {
-    "한국관광공사": 3,
-    "전라남도_남도여행길잡이": 2,
+    "한국관광공사": 9,
+    "전라남도_남도여행길잡이": 1,
 }
 LOCALITY_SUFFIXES = ("동", "읍", "면", "리", "구", "시", "군")
+SEA_KEYWORDS = {"바다", "해변", "해수욕장", "오션", "항구", "해안", "섬", "갯벌", "해양", "연안"}
 
 
 def _tokenize(text: str) -> set[str]:
@@ -90,11 +75,39 @@ def _standard_answer_from_ids(region_ids: list[int], rows: list[dict]) -> str:
     return f"요청 반영 완료! 3x3 피드를 {len(picked)}곳으로 업데이트했어요: {', '.join(picked)}"
 
 
-def _detect_query_regions(query_text: str, query_tokens: set[str]) -> set[str]:
+def _row_region_aliases(row: dict) -> set[str]:
+    aliases: set[str] = set()
+    for field in ("region", "province"):
+        value = str(row.get(field, "")).strip().lower()
+        if value:
+            aliases.add(value)
+            aliases.update(_tokenize(value))
+
+    address = str(row.get("address", "")).strip().lower()
+    if address:
+        address_tokens = _tokenize(address)
+        aliases.update(address_tokens)
+        first = address.split(" ")[0].strip()
+        if first:
+            aliases.add(first)
+        for token in address_tokens:
+            if token.endswith(LOCALITY_SUFFIXES):
+                aliases.add(token)
+    return aliases
+
+
+def _detect_query_regions(query_text: str, query_tokens: set[str], rows: list[dict]) -> set[str]:
+    alias_universe: set[str] = set()
+    for row in rows:
+        alias_universe.update(_row_region_aliases(row))
+
     matched_regions: set[str] = set()
-    for canonical, aliases in REGION_HINTS.items():
-        if canonical in query_tokens or any(alias in query_text for alias in aliases):
-            matched_regions.add(canonical)
+    for token in query_tokens:
+        if token in alias_universe:
+            matched_regions.add(token)
+    for alias in alias_universe:
+        if alias and alias in query_text:
+            matched_regions.add(alias)
     return matched_regions
 
 
@@ -106,14 +119,7 @@ def _source_weight(source: str) -> int:
 
 
 def _extract_focus_tokens(query_tokens: set[str], query_regions: set[str]) -> set[str]:
-    region_aliases: set[str] = set()
-    for region in query_regions:
-        region_aliases.update(alias.lower() for alias in REGION_HINTS.get(region, set()))
-    return {
-        token
-        for token in query_tokens
-        if token not in GENERIC_QUERY_TOKENS and token not in region_aliases and len(token) >= 2
-    }
+    return {token for token in query_tokens if token not in GENERIC_QUERY_TOKENS and token not in query_regions and len(token) >= 2}
 
 
 def _build_scoring_tokens(query_tokens: set[str]) -> set[str]:
@@ -138,19 +144,17 @@ def _out_of_scope_notice(user_message: str) -> str:
     return f"현재 서비스는 광주/전남 중심 데이터만 제공합니다. ({unique}은/는 범위 밖)"
 
 
+def _is_seaside_query(query_tokens: set[str], query_text: str) -> bool:
+    if any(token in query_tokens for token in SEA_KEYWORDS):
+        return True
+    return any(keyword in query_text for keyword in SEA_KEYWORDS)
+
+
 def _region_match(row: dict, regions: set[str]) -> bool:
     if not regions:
         return False
-    blob = " ".join(
-        [
-            str(row.get("region", "")),
-            str(row.get("province", "")),
-            str(row.get("address", "")),
-            str(row.get("name", "")),
-            str(row.get("summary", "")),
-        ]
-    ).lower()
-    return any(any(alias in blob for alias in REGION_HINTS[region]) for region in regions if region in REGION_HINTS)
+    aliases = _row_region_aliases(row)
+    return any(region in aliases for region in regions)
 
 
 def _locality_match(row: dict, locality_tokens: set[str]) -> bool:
@@ -166,6 +170,18 @@ def _locality_match(row: dict, locality_tokens: set[str]) -> bool:
     return any(token in blob for token in locality_tokens)
 
 
+def _is_seaside_row(row: dict) -> bool:
+    blob = " ".join(
+        [
+            str(row.get("name", "")),
+            str(row.get("summary", "")),
+            str(row.get("address", "")),
+            " ".join(row.get("recommendedBusinesses", []) if isinstance(row.get("recommendedBusinesses"), list) else []),
+        ]
+    ).lower()
+    return any(keyword in blob for keyword in SEA_KEYWORDS)
+
+
 def _score_row(
     row: dict,
     scoring_tokens: set[str],
@@ -173,6 +189,7 @@ def _score_row(
     specific_regions: set[str],
     focus_tokens: set[str],
     locality_tokens: set[str],
+    seaside_query: bool,
     day_trip: bool,
 ) -> tuple[int, int, str]:
     name = str(row.get("name", ""))
@@ -233,6 +250,12 @@ def _score_row(
         else:
             score -= 4
 
+    if seaside_query:
+        if _is_seaside_row(row):
+            score += 16
+        else:
+            score -= 8
+
     return int(row["id"]), score, name
 
 
@@ -249,11 +272,12 @@ def _score_regions(user_message: str) -> list[int]:
 
     query_text = user_message.lower()
     day_trip = any(keyword in query_text for keyword in DAY_TRIP_KEYWORDS)
-    query_regions = _detect_query_regions(query_text, query_tokens)
+    query_regions = _detect_query_regions(query_text, query_tokens, rows)
     specific_regions = {region for region in query_regions if region not in BROAD_REGION_HINTS}
     scoring_tokens = _build_scoring_tokens(query_tokens)
     focus_tokens = _extract_focus_tokens(query_tokens, query_regions)
     locality_tokens = _extract_locality_tokens(query_tokens)
+    seaside_query = _is_seaside_query(query_tokens, query_text)
 
     scored = [
         _score_row(
@@ -263,6 +287,7 @@ def _score_regions(user_message: str) -> list[int]:
             specific_regions,
             focus_tokens,
             locality_tokens,
+            seaside_query,
             day_trip,
         )
         for row in rows
@@ -294,11 +319,12 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
     query_tokens = _tokenize(user_message)
     query_text = user_message.lower()
     day_trip = any(keyword in query_text for keyword in DAY_TRIP_KEYWORDS)
-    query_regions = _detect_query_regions(query_text, query_tokens)
+    query_regions = _detect_query_regions(query_text, query_tokens, rows)
     specific_regions = {region for region in query_regions if region not in BROAD_REGION_HINTS}
     scoring_tokens = _build_scoring_tokens(query_tokens)
     focus_tokens = _extract_focus_tokens(query_tokens, query_regions)
     locality_tokens = _extract_locality_tokens(query_tokens)
+    seaside_query = _is_seaside_query(query_tokens, query_text)
 
     scored: list[tuple[int, int, str, dict]] = []
     for row in rows:
@@ -309,6 +335,7 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
             specific_regions,
             focus_tokens,
             locality_tokens,
+            seaside_query,
             day_trip,
         )
         scored.append((region_id, score, name, row))
@@ -329,6 +356,14 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
         picked.append(region_id)
 
     # 1) 높은 관련도만 우선 채택
+    if seaside_query:
+        for region_id, score, _, row in scored:
+            if score < 6 or not _is_seaside_row(row):
+                continue
+            push(region_id, row)
+            if len(picked) >= size:
+                return picked[:size]
+
     for region_id, score, _, row in scored:
         if score < 6:
             continue
