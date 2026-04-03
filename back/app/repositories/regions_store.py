@@ -31,8 +31,11 @@ def init_region_db() -> None:
                     region TEXT,
                     province TEXT,
                     address TEXT,
+                    latitude REAL,
+                    longitude REAL,
                     image_url TEXT NOT NULL,
                     summary TEXT NOT NULL,
+                    summary_short TEXT,
                     recommended_businesses_json TEXT NOT NULL,
                     busy_hours_json TEXT NOT NULL,
                     target_customers_json TEXT NOT NULL,
@@ -41,6 +44,18 @@ def init_region_db() -> None:
                 )
                 """
             )
+            try:
+                conn.execute("ALTER TABLE regions ADD COLUMN summary_short TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE regions ADD COLUMN latitude REAL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE regions ADD COLUMN longitude REAL")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
 
@@ -73,6 +88,18 @@ def _normalize_image_url(value: object) -> str:
     return image_url
 
 
+def _to_float_or_none(value: object) -> Optional[float]:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except Exception:
+        return None
+
+
 def upsert_regions_to_db(rows: list[dict]) -> None:
     if not rows:
         return
@@ -92,8 +119,11 @@ def upsert_regions_to_db(rows: list[dict]) -> None:
                 str(row.get("region", "")),
                 str(row.get("province", "")),
                 str(row.get("address", "")),
+                _to_float_or_none(row.get("latitude")),
+                _to_float_or_none(row.get("longitude")),
                 _normalize_image_url(row.get("imageUrl", "")),
                 str(row.get("summary", "")),
+                str(row.get("summaryShort", "")),
                 _serialize_list(row.get("recommendedBusinesses", [])),
                 _serialize_list(row.get("busyHours", [])),
                 _serialize_list(row.get("targetCustomers", [])),
@@ -111,18 +141,21 @@ def upsert_regions_to_db(rows: list[dict]) -> None:
             conn.executemany(
                 """
                 INSERT INTO regions (
-                    id, source_id, name, region, province, address, image_url, summary,
-                    recommended_businesses_json, busy_hours_json, target_customers_json, data_source, updated_at
+                    id, source_id, name, region, province, address, latitude, longitude, image_url, summary,
+                    summary_short, recommended_businesses_json, busy_hours_json, target_customers_json, data_source, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     source_id = excluded.source_id,
                     name = excluded.name,
                     region = excluded.region,
                     province = excluded.province,
                     address = excluded.address,
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
                     image_url = excluded.image_url,
                     summary = excluded.summary,
+                    summary_short = excluded.summary_short,
                     recommended_businesses_json = excluded.recommended_businesses_json,
                     busy_hours_json = excluded.busy_hours_json,
                     target_customers_json = excluded.target_customers_json,
@@ -142,8 +175,11 @@ def _row_to_region(row: sqlite3.Row) -> dict:
         "region": row["region"] or "",
         "province": row["province"] or "",
         "address": row["address"] or "",
+        "latitude": _to_float_or_none(row["latitude"]),
+        "longitude": _to_float_or_none(row["longitude"]),
         "imageUrl": _normalize_image_url(row["image_url"]),
         "summary": row["summary"] or "",
+        "summaryShort": row["summary_short"] or "",
         "recommendedBusinesses": _deserialize_list(row["recommended_businesses_json"]),
         "busyHours": _deserialize_list(row["busy_hours_json"]),
         "targetCustomers": _deserialize_list(row["target_customers_json"]),
@@ -173,3 +209,29 @@ def get_region_by_id_from_db(region_id: int) -> Optional[dict]:
     if not row:
         return None
     return _row_to_region(row)
+
+
+def update_region_summary_short_in_db(region_id: int, summary_short: str) -> None:
+    path = _db_path()
+    if not path.exists():
+        return
+    with _db_lock:
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "UPDATE regions SET summary_short = ?, updated_at = ? WHERE id = ?",
+                (summary_short, time.time(), region_id),
+            )
+            conn.commit()
+
+
+def update_region_coordinates_in_db(region_id: int, latitude: float, longitude: float) -> None:
+    path = _db_path()
+    if not path.exists():
+        return
+    with _db_lock:
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "UPDATE regions SET latitude = ?, longitude = ?, updated_at = ? WHERE id = ?",
+                (float(latitude), float(longitude), time.time(), region_id),
+            )
+            conn.commit()

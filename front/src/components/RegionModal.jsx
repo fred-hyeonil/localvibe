@@ -1,3 +1,5 @@
+import KakaoMap from "./KakaoMap";
+
 function toCardItems(region) {
   const noInfo = ["정보를 제공 받을 수 없습니다."];
   return [
@@ -28,6 +30,9 @@ export default function RegionModal({ region, isLoading, onClose }) {
   }
 
   const cards = toCardItems(region);
+  const shortSummary = region.summaryShort || region.summary || "정보를 제공 받을 수 없습니다.";
+  const longSummary = region.summary || "";
+  const showOriginal = longSummary && shortSummary && longSummary !== shortSummary;
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -45,8 +50,19 @@ export default function RegionModal({ region, isLoading, onClose }) {
           }}
         />
         <h2>{region.name}</h2>
-        <p>{region.summary || "정보를 제공 받을 수 없습니다."}</p>
+        <p>{shortSummary}</p>
+        {showOriginal && (
+          <details className="modal-summary-details">
+            <summary>원문 보기</summary>
+            <p>{longSummary}</p>
+          </details>
+        )}
         {region.dataSource && <p className="modal-source">출처: {region.dataSource}</p>}
+        {isLoading ? (
+          <p className="kakao-map-error">지도 좌표를 준비하는 중입니다...</p>
+        ) : (
+          <KakaoMap address={region.address} latitude={region.latitude} longitude={region.longitude} />
+        )}
         {isLoading && <p className="modal-loading">상세 데이터를 불러오는 중...</p>}
         <section className="insight-grid">
           {cards.map((card) => (
