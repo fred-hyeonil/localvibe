@@ -15,5 +15,7 @@ def chat(payload: ChatRequest):
 def trip_chat(payload: TripChatRequest):
     return get_trip_chat_result(
         payload.message,
-        {"nights": payload.tripDuration.nights, "days": payload.tripDuration.days}
+        {"nights": payload.tripDuration.nights, "days": payload.tripDuration.days},
+        payload.currentLocationIds or [],
+        payload.excludeLocationId,
     )
