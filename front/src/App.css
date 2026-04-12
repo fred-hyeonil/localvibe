@@ -257,6 +257,19 @@ body {
   font-size: 14px;
 }
 
+.kakao-map-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #2c4ac7;
+  font-size: 13px;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.kakao-map-link:hover {
+  text-decoration: underline;
+}
+
 .insight-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
