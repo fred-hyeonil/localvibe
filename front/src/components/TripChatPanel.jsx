@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { flushSync } from 'react-dom';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const ASSISTANT_MESSAGE_DELAY = 0.3;
+const LOADING_INDICATOR_DELAY = 0.7;
 
 function getMaxLocationsByDuration(days) {
   return Math.max(1, days * 5);
@@ -122,6 +125,31 @@ function parseReplaceIntent(text) {
   return null;
 }
 
+function hasRemoveIntent(text) {
+  return /제외|삭제|제거|없애|빼/.test(text);
+}
+
+function parseRemoveIntent(text) {
+  // "X 제외해줘", "X 삭제해줘", "X 빼줘", "X 없애줘" 등 감지
+  const patterns = [
+    /(.*?)\s*(?:을|를)?\s*(?:제외|삭제|제거|빼|없애)(?:\s*해)?(?:줘|주세요|주라|줘요)?/,
+    /(\S+?)\s*(?:을|를)\s*(?:제외|삭제|제거|빼|없애)(?:\s*해)?(?:줘|주세요|주라|줘요)?/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) {
+      continue;
+    }
+    const target = String(match[1] || '').trim();
+    if (target) {
+      return target;
+    }
+  }
+
+  return null;
+}
+
 /**
  * TripChatPanel Component
  * Specialized chat for Trip Planner - adds/removes locations from roadmap
@@ -212,8 +240,52 @@ export default function TripChatPanel({
       return;
     }
 
-    setMessages(prev => [...prev, { role: 'user', text: trimmed }]);
-    setInput('');
+    // Ensure the user's bubble appears immediately before additional intent parsing/network work.
+    flushSync(() => {
+      setMessages(prev => [...prev, { role: 'user', text: trimmed }]);
+      setInput('');
+    });
+
+    const removeIntentName = parseRemoveIntent(trimmed);
+    if (hasRemoveIntent(trimmed)) {
+      if (currentLocations.length === 0) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: '현재 로드맵이 비어 있어 제거할 장소가 없습니다. 먼저 장소를 추가해 주세요.',
+          },
+        ]);
+        return;
+      }
+
+      if (removeIntentName) {
+        const normalizedTarget = normalizeForMatch(removeIntentName);
+        const matchedLocation = currentLocations.find(loc =>
+          normalizeForMatch(loc.name).includes(normalizedTarget),
+        );
+
+        if (matchedLocation) {
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: `${matchedLocation.name}은(는) 왼쪽 로드맵의 점(노드)에 마우스를 올리면 나오는 제거 버튼으로 바로 뺄 수 있어요.`,
+            },
+          ]);
+          return;
+        }
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: '제거는 왼쪽 로드맵 노드에 마우스를 올리면 나타나는 제거 버튼으로 할 수 있어요.',
+        },
+      ]);
+      return;
+    }
 
     const parsedDuration = parseTripDuration(trimmed);
     const incrementDays = parseDurationIncrement(trimmed);
@@ -497,7 +569,7 @@ export default function TripChatPanel({
             transition={{
               duration: 0.3,
               ease: 'easeOut',
-              delay: index * 0.05,
+              delay: message.role === 'assistant' ? ASSISTANT_MESSAGE_DELAY : 0,
             }}
           >
             {message.role === 'assistant' && (
@@ -511,7 +583,11 @@ export default function TripChatPanel({
             className="trip-chat-message assistant"
             initial={{ opacity: 0, x: -100, y: 20 }}
             animate={{ opacity: 1, x: 0, y: 0 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
+            transition={{
+              duration: 0.3,
+              ease: 'easeOut',
+              delay: LOADING_INDICATOR_DELAY,
+            }}
           >
             <span className="chat-icon">🤖</span>
             응답 생성 중...

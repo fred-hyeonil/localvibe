@@ -29,9 +29,35 @@ const wrapV = {
 
 const ITEMS_PER_DAY = 5;
 
+function UpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 5l-7 7h4v7h6v-7h4l-7-7z" />
+    </svg>
+  );
+}
+
+function DownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 19l7-7h-4V5H9v7H5l7 7z" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6 6l12 12M18 6L6 18" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function RoadMap({
   locations = [],
   onNodeClick,
+  onMoveNode,
+  onRemoveNode,
   selectedId = null,
 }) {
   const nodes = useMemo(() => {
@@ -95,8 +121,56 @@ export default function RoadMap({
                   custom={node.renderIndex}
                   variants={itemVariants}
                 >
-                  <div className="sroadmap-marker" aria-hidden>
+                  <div className="sroadmap-marker">
                     <span className="sroadmap-dot" />
+                    <div
+                      className="sroadmap-marker-actions"
+                      aria-label={`${node.name} 관리`}
+                    >
+                      {onMoveNode && (
+                        <button
+                          className="sroadmap-move-btn"
+                          type="button"
+                          aria-label={`${node.name} 위로 이동`}
+                          onClick={event => {
+                            event.currentTarget.blur();
+                            onMoveNode(node.renderIndex, node.renderIndex - 1);
+                          }}
+                          disabled={node.renderIndex === 0}
+                        >
+                          <UpIcon />
+                        </button>
+                      )}
+
+                      {onRemoveNode && (
+                        <button
+                          className="sroadmap-remove-btn"
+                          type="button"
+                          aria-label={`${node.name} 제거`}
+                          onClick={event => {
+                            event.currentTarget.blur();
+                            onRemoveNode(node.clickId);
+                          }}
+                        >
+                          <DeleteIcon />
+                        </button>
+                      )}
+
+                      {onMoveNode && (
+                        <button
+                          className="sroadmap-move-btn"
+                          type="button"
+                          aria-label={`${node.name} 아래로 이동`}
+                          onClick={event => {
+                            event.currentTarget.blur();
+                            onMoveNode(node.renderIndex, node.renderIndex + 1);
+                          }}
+                          disabled={node.renderIndex === nodes.length - 1}
+                        >
+                          <DownIcon />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <button

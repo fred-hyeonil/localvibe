@@ -149,6 +149,31 @@ export default function TripPlannerPage({ regions = [] }) {
     }
   };
 
+  const handleMoveLocation = (fromIndex, toIndex) => {
+    setRoadmapLocations(prev => {
+      if (
+        !Number.isInteger(fromIndex) ||
+        !Number.isInteger(toIndex) ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= prev.length ||
+        fromIndex === toIndex
+      ) {
+        return prev;
+      }
+
+      const nextIndex = Math.max(0, Math.min(prev.length - 1, toIndex));
+      if (nextIndex === fromIndex) {
+        return prev;
+      }
+
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
+
   /**
    * Clear entire roadmap
    */
@@ -198,6 +223,8 @@ export default function TripPlannerPage({ regions = [] }) {
                     setInsightLocation(null);
                   }
                 }}
+                onRemoveNode={handleRemoveLocation}
+                onMoveNode={handleMoveLocation}
                 selectedId={selectedLocation?.id}
               />
             )}
