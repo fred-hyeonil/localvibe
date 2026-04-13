@@ -59,6 +59,7 @@ export default function RoadMap({
   onMoveNode,
   onRemoveNode,
   selectedId = null,
+  isModalOpen = false,
 }) {
   const nodes = useMemo(() => {
     return locations.map((loc, index) => ({
@@ -94,7 +95,11 @@ export default function RoadMap({
   }, [nodes]);
 
   return (
-    <div className="sroadmap-container sroadmap-timeline">
+    <div
+      className={`sroadmap-container sroadmap-timeline ${
+        isModalOpen ? 'modal-open' : ''
+      }`}
+    >
       <motion.div
         className="sroadmap-timeline-list"
         initial="hidden"

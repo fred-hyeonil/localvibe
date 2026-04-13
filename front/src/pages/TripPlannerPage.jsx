@@ -226,6 +226,7 @@ export default function TripPlannerPage({ regions = [] }) {
                 onRemoveNode={handleRemoveLocation}
                 onMoveNode={handleMoveLocation}
                 selectedId={selectedLocation?.id}
+                isModalOpen={Boolean(selectedLocation)}
               />
             )}
 

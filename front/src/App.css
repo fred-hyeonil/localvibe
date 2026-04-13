@@ -439,6 +439,11 @@ body {
   flex: 1;
   min-height: 300px;
   width: 100%;
+  transition: opacity 0.2s ease;
+}
+
+.sroadmap-container.modal-open {
+  opacity: 0.8;
 }
 
 .sroadmap-timeline {
