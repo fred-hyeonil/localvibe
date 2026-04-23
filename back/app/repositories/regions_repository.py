@@ -785,18 +785,26 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
         image_url = _fallback_image_for_name(plan_name)
 
     recommended: list[str] = []
-    if course_context.get("courseCategory"):
-        recommended.append(course_context["courseCategory"])
-    if course_context.get("coursePersonType"):
-        recommended.append(course_context["coursePersonType"])
-    if course_context.get("coursePeriod"):
-        recommended.append(course_context["coursePeriod"])
+    category = str(course_context.get("courseCategory") or "").strip()
+    person_type = str(course_context.get("coursePersonType") or "").strip()
+    period = str(course_context.get("coursePeriod") or "").strip()
+    if category and not category.isdigit():
+        recommended.append(category)
+    if person_type and not person_type.isdigit():
+        recommended.append(f"{person_type} 맞춤")
+    if period and not period.isdigit():
+        recommended.append(f"{period} 추천")
+    if not recommended:
+        recommended = ["로컬 관광", "체험형 방문"]
 
     target_customers: list[str] = []
-    if course_context.get("coursePersonCount"):
-        target_customers.append(f"추천 인원: {course_context['coursePersonCount']}")
+    person_count = str(course_context.get("coursePersonCount") or "").strip()
+    if person_count:
+        target_customers.append(f"추천 인원: {person_count}")
     if plan_phone:
         target_customers.append(f"전화문의: {plan_phone}")
+    if not target_customers:
+        target_customers = ["로컬 여행객", "당일 방문객"]
 
     region_id_key = f"{plan_course_id}:{plan_info_id or plan_name}"
     return {
