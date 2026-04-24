@@ -14,6 +14,142 @@ body {
   margin: 0;
 }
 
+.app-root {
+  min-height: 100vh;
+  background: #f4f5f7;
+}
+
+.top-header {
+  height: 68px;
+  border-bottom: 1px solid #e1e5ef;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.top-header-left,
+.top-header-right,
+.top-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-toggle-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d9deea;
+  background: #fff;
+  border-radius: 8px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.toggle-bar {
+  height: 2px;
+  background: #2a3348;
+  width: 100%;
+}
+
+.top-header-logo {
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.top-header-link {
+  color: #4c556a;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.top-header-btn {
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d9deea;
+  background: #fff;
+  cursor: pointer;
+}
+
+.top-header-btn.filled {
+  background: #1f2329;
+  border-color: #1f2329;
+  color: #fff;
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 0;
+}
+
+.app-sidebar {
+  border-right: 1px solid #e1e5ef;
+  background: #fff;
+  min-height: calc(100vh - 68px);
+  transition: width 0.2s ease;
+}
+
+.app-sidebar.closed {
+  width: 0;
+  overflow: hidden;
+  border-right: none;
+}
+
+.sidebar-inner {
+  padding: 18px 12px;
+}
+
+.sidebar-group + .sidebar-group {
+  margin-top: 14px;
+}
+
+.sidebar-section-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #778096;
+  font-weight: 700;
+}
+
+.sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-item {
+  width: 100%;
+  border: 1px solid transparent;
+  background: #fff;
+  border-radius: 8px;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: #2a3348;
+}
+
+.sidebar-item.active,
+.sidebar-item:hover {
+  background: #f3f6ff;
+  border-color: #dbe3ff;
+  color: #3c59cc;
+}
+
+.app-main {
+  min-width: 0;
+}
+
 .app-shell {
   max-width: 1520px;
   margin: 0 auto;
@@ -1049,4 +1185,401 @@ body {
     padding: 10px 16px;
     font-size: 14px;
   }
+}
+
+.region-card.interactive {
+  position: relative;
+  cursor: pointer;
+}
+
+.region-card-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  background: rgba(17, 17, 17, 0.85);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.card-heart-btn,
+.card-add-btn {
+  border: 1px solid #d8dce7;
+  background: #fff;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.card-heart-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+}
+
+.card-heart-btn.scrapped {
+  color: #e24362;
+}
+
+.region-card-overlay {
+  padding: 12px 14px 0;
+}
+
+.region-overlay-name {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.region-overlay-summary {
+  margin: 0;
+  color: #616b7f;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.region-overlay-bottom {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.region-overlay-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.region-overlay-tag {
+  border: 1px solid #e0e6f5;
+  background: #f8faff;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #475579;
+}
+
+.category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.category-btn {
+  border: 1px solid #e2e5ec;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.category-btn.active {
+  border-color: #5b7cff;
+  color: #3654cd;
+  background: #f2f5ff;
+}
+
+.gallery-toolbar {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0 16px;
+  color: #5f6879;
+  font-size: 13px;
+}
+
+.pagination {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.pagination-btn {
+  min-width: 32px;
+  height: 32px;
+  border: 1px solid #e2e5ec;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pagination-btn.active {
+  border-color: #5b7cff;
+  color: #3654cd;
+  background: #f2f5ff;
+}
+
+.trip-popup {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  width: 220px;
+  background: #fff;
+  border: 1px solid #e2e5ec;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(23, 32, 56, 0.12);
+  padding: 10px;
+}
+
+.trip-popup-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.trip-popup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.trip-popup-item {
+  width: 100%;
+  border: 1px solid #e2e5ec;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trip-popup-empty {
+  margin: 0;
+  color: #6f7787;
+  font-size: 12px;
+}
+
+.gallery-empty {
+  margin-top: 14px;
+  text-align: center;
+  color: #6f7787;
+}
+
+.gallery-empty-reset {
+  margin-top: 8px;
+  border: 1px solid #d6dcec;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.add-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: #1d1f22;
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  z-index: 9999;
+}
+
+.mypage-root {
+  border: 1px solid #e2e5ec;
+  border-radius: 18px;
+  background: #fff;
+  padding: 20px;
+}
+
+.mypage-profile {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.mypage-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #1f2329;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.mypage-username {
+  margin: 0;
+  font-weight: 800;
+}
+
+.mypage-usersub,
+.trip-card-date,
+.trip-card-count {
+  margin: 0;
+  color: #6b7384;
+  font-size: 13px;
+}
+
+.mypage-stats {
+  margin-top: 4px;
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.mypage-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.mypage-tab {
+  border: 1px solid #e2e5ec;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.mypage-tab.active {
+  border-color: #5b7cff;
+  background: #f2f5ff;
+  color: #3654cd;
+}
+
+.mypage-list-header,
+.trip-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.new-trip-form {
+  border: 1px solid #e2e5ec;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.new-trip-input {
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  height: 38px;
+  padding: 0 10px;
+}
+
+.new-trip-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.new-trip-confirm,
+.new-trip-cancel,
+.new-trip-btn,
+.trip-delete-btn,
+.trip-go-gallery,
+.trip-detail-back,
+.trip-place-remove,
+.trip-card-delete,
+.scrap-heart-btn {
+  border: 1px solid #d7dbe6;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.trip-list,
+.trip-places,
+.scrap-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.trip-card,
+.trip-place-item,
+.scrap-card {
+  border: 1px solid #e2e5ec;
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.trip-card {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.trip-card-thumbs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.trip-card-thumbs img,
+.trip-place-img,
+.scrap-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.trip-place-item {
+  display: grid;
+  grid-template-columns: 28px 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.trip-place-num {
+  font-weight: 700;
+  text-align: center;
+}
+
+.trip-place-name,
+.scrap-name,
+.trip-card-name {
+  margin: 0;
+  font-weight: 700;
+}
+
+.trip-place-summary,
+.scrap-summary {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #697284;
+}
+
+.scrap-img-wrap {
+  position: relative;
+}
+
+.scrap-heart-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
 }
