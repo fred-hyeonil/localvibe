@@ -5,29 +5,10 @@ import RegionGallery from './components/RegionGallery';
 import RegionModal from './components/RegionModal';
 import { defaultRegions } from './data/defaultRegions';
 import TripPlannerPage from './pages/TripPlannerPage';
-import MyPage from './pages/MyPage';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const FEED_SIZE = 9;
-const NAV_ITEMS = [
-  {
-    section: '메인',
-    items: [
-      { id: 'home', label: '🏠 홈으로', tab: 'home' },
-      { id: 'gallery', label: '🗺️ 지역 갤러리', tab: 'gallery' },
-      { id: 'planner', label: '✈️ 여행 플래너', tab: 'planner' },
-      { id: 'mypage', label: '👤 마이페이지', tab: 'mypage' },
-    ],
-  },
-  {
-    section: '지역',
-    items: [
-      { id: 'gwangju', label: '📍 광주', tab: 'gallery' },
-      { id: 'jeonnam', label: '📍 전남', tab: 'gallery' },
-    ],
-  },
-];
 
 function normalizeTextKey(value) {
   return String(value || '')
@@ -98,19 +79,6 @@ export default function App() {
   const [insightRegion, setInsightRegion] = useState(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('gallery'); // "gallery" or "planner"
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [myTrips, setMyTrips] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('lv_mytrips') || '[]');
-    } catch {
-      return [];
-    }
-  });
-
-  const saveTrips = trips => {
-    setMyTrips(trips);
-    localStorage.setItem('lv_mytrips', JSON.stringify(trips));
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -220,90 +188,61 @@ export default function App() {
     setDisplayedRegions([...uniqueSelected, ...filler].slice(0, FEED_SIZE));
   };
 
-  const handleNavClick = item => {
-    if (item.tab === 'home') {
-      window.location.href = '/';
-      return;
-    }
-    setActiveTab(item.tab);
-  };
-
   return (
-    <div className="app-root">
-      <TopHeader
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(prev => !prev)}
-      />
-      <div className="app-body">
-        <aside className={`app-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
-          <div className="sidebar-inner">
-            {NAV_ITEMS.map(group => (
-              <div key={group.section} className="sidebar-group">
-                <p className="sidebar-section-label">{group.section}</p>
-                <ul className="sidebar-list">
-                  {group.items.map(item => (
-                    <li key={item.id}>
-                      <button
-                        className={`sidebar-item ${activeTab === item.tab ? 'active' : ''}`}
-                        onClick={() => handleNavClick(item)}
-                      >
-                        {item.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </aside>
+    <main className="app-shell">
+      <TopHeader />
 
-        <main className="app-main app-shell">
-          {activeTab === 'gallery' ? (
-            <>
-              <ChatbotPanel onRecommendFeed={handleRecommendFeed} />
-              <RegionGallery
-                regions={displayedRegions}
-                totalRegions={regions}
-                onSelect={region => {
-                  setSelectedRegion(region);
-                  setInsightRegion(null);
-                }}
-                myTrips={myTrips}
-                onSaveTrips={saveTrips}
-              />
-            </>
-          ) : activeTab === 'planner' ? (
-            <TripPlannerPage regions={regions} />
-          ) : (
-            <MyPage
-              myTrips={myTrips}
-              onSaveTrips={saveTrips}
-              regions={regions}
-              onGoGallery={() => setActiveTab('gallery')}
-            />
-          )}
-
-          <footer className="main-footer">
-            <div className="main-footer-top">
-              <div>
-                <div className="main-footer-brand">LocalVibe</div>
-                <div className="main-footer-desc">
-                  Discover real local stories with AI and data-driven insights.
-                </div>
-              </div>
-              <div className="main-footer-links">
-                <span>Core Features</span>
-                <span>Pro Experience</span>
-                <span>Contact</span>
-                <span>Join</span>
-              </div>
-            </div>
-            <div className="main-footer-bottom">
-              © 2026 LocalVibe. All rights reserved.
-            </div>
-          </footer>
-        </main>
+      {/* Tab Navigation */}
+      <div className="app-tabs">
+        <button
+          className={`app-tab ${activeTab === 'gallery' ? 'active' : ''}`}
+          onClick={() => setActiveTab('gallery')}
+        >
+          Gallery
+        </button>
+        <button
+          className={`app-tab ${activeTab === 'planner' ? 'active' : ''}`}
+          onClick={() => setActiveTab('planner')}
+        >
+          Trip Planner
+        </button>
       </div>
+
+      {/* Conditional Content */}
+      {activeTab === 'gallery' ? (
+        <>
+          <ChatbotPanel onRecommendFeed={handleRecommendFeed} />
+          <RegionGallery
+            regions={displayedRegions.slice(0, FEED_SIZE)}
+            onSelect={region => {
+              setSelectedRegion(region);
+              setInsightRegion(null);
+            }}
+          />
+        </>
+      ) : (
+        <TripPlannerPage regions={regions} />
+      )}
+
+      <footer className="main-footer">
+        <div className="main-footer-top">
+          <div>
+            <div className="main-footer-brand">LocalVibe</div>
+            <div className="main-footer-desc">
+              Discover real local stories with AI and data-driven insights.
+            </div>
+          </div>
+          <div className="main-footer-links">
+            <span>Core Features</span>
+            <span>Pro Experience</span>
+            <span>Contact</span>
+            <span>Join</span>
+          </div>
+        </div>
+        <div className="main-footer-bottom">
+          © 2026 LocalVibe. All rights reserved.
+        </div>
+      </footer>
       <RegionModal
         region={insightRegion || selectedRegion}
         isLoading={isInsightLoading}
@@ -312,6 +251,6 @@ export default function App() {
           setInsightRegion(null);
         }}
       />
-    </div>
+    </main>
   );
 }
