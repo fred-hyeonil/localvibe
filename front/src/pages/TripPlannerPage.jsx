@@ -66,13 +66,40 @@ export default function TripPlannerPage({ regions = [] }) {
   }, [selectedLocation]);
 
   /**
+   * Handle location replacement in roadmap
+   * Replaces old location with new one at the same position
+   */
+  const handleReplaceLocation = (oldLocationId, newLocationId) => {
+    const newRegion = regionMap.get(Number(newLocationId));
+    if (!newRegion) {
+      return;
+    }
+
+    setRoadmapLocations(prev =>
+      prev.map(loc => (loc.id === oldLocationId ? newRegion : loc)),
+    );
+  };
+
+  const resolveRegionName = regionId => {
+    const region = regionMap.get(Number(regionId));
+    return region?.name || null;
+  };
+
+  /**
    * Handle AI recommendations from Trip Chat
    * Merges new recommended regions into roadmap locations
    */
-  const handleTripLocationsChange = recommendedIds => {
+  const handleTripLocationsChange = (recommendedIds, options = {}) => {
     if (!Array.isArray(recommendedIds) || recommendedIds.length === 0) {
       return;
     }
+
+    const maxLocations = Number.isFinite(options?.maxLocations)
+      ? Number(options.maxLocations)
+      : null;
+    const requestedAddCount = Number.isFinite(options?.requestedAddCount)
+      ? Number(options.requestedAddCount)
+      : null;
 
     // Get full region objects from recommendedIds
     const newRegions = recommendedIds
@@ -83,14 +110,32 @@ export default function TripPlannerPage({ regions = [] }) {
       return;
     }
 
-    // Merge with existing roadmap locations, avoiding duplicates
-    const existingIds = new Set(roadmapLocations.map(loc => loc.id));
-    const uniqueNewRegions = newRegions.filter(
-      region => !existingIds.has(region.id),
-    );
+    setRoadmapLocations(prev => {
+      const existingIds = new Set(prev.map(loc => loc.id));
+      const uniqueNewRegions = newRegions.filter(
+        region => !existingIds.has(region.id),
+      );
 
-    // Append new regions to roadmap (preserve existing order)
-    setRoadmapLocations(prev => [...prev, ...uniqueNewRegions]);
+      if (uniqueNewRegions.length === 0) {
+        return prev;
+      }
+
+      const remainingSlots = Number.isFinite(maxLocations)
+        ? Math.max(0, maxLocations - prev.length)
+        : uniqueNewRegions.length;
+      if (remainingSlots <= 0) {
+        return prev;
+      }
+
+      // 추가하려던 개수 만큼만 가져오기
+      // (이미 존재하는 것들이 필터링되었으므로)
+      const addCount = Math.min(uniqueNewRegions.length, remainingSlots);
+      if (addCount <= 0) {
+        return prev;
+      }
+
+      return [...prev, ...uniqueNewRegions.slice(0, addCount)];
+    });
   };
 
   /**
@@ -102,6 +147,31 @@ export default function TripPlannerPage({ regions = [] }) {
       setSelectedLocation(null);
       setInsightLocation(null);
     }
+  };
+
+  const handleMoveLocation = (fromIndex, toIndex) => {
+    setRoadmapLocations(prev => {
+      if (
+        !Number.isInteger(fromIndex) ||
+        !Number.isInteger(toIndex) ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= prev.length ||
+        fromIndex === toIndex
+      ) {
+        return prev;
+      }
+
+      const nextIndex = Math.max(0, Math.min(prev.length - 1, toIndex));
+      if (nextIndex === fromIndex) {
+        return prev;
+      }
+
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
   };
 
   /**
@@ -153,7 +223,10 @@ export default function TripPlannerPage({ regions = [] }) {
                     setInsightLocation(null);
                   }
                 }}
+                onRemoveNode={handleRemoveLocation}
+                onMoveNode={handleMoveLocation}
                 selectedId={selectedLocation?.id}
+                isModalOpen={Boolean(selectedLocation)}
               />
             )}
 
@@ -166,6 +239,8 @@ export default function TripPlannerPage({ regions = [] }) {
         <div className="trip-planner-right">
           <TripChatPanel
             onTripLocationsChange={handleTripLocationsChange}
+            onReplaceLocation={handleReplaceLocation}
+            resolveRegionName={resolveRegionName}
             currentLocations={roadmapLocations}
           />
         </div>

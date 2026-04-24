@@ -488,6 +488,11 @@ body {
   flex: 1;
   min-height: 300px;
   width: 100%;
+  transition: opacity 0.2s ease;
+}
+
+.sroadmap-container.modal-open {
+  opacity: 0.8;
 }
 
 .sroadmap-timeline {
@@ -549,6 +554,7 @@ body {
   justify-content: center;
   align-items: center;
   height: 100%;
+  position: relative;
 }
 
 .sroadmap-dot {
@@ -564,6 +570,113 @@ body {
   position: relative;
   z-index: 1;
   box-shadow: 0 0 0 4px #fff;
+  transition: opacity 0.2s ease;
+}
+
+.sroadmap-marker-actions {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.18s ease;
+  z-index: 2;
+}
+
+.sroadmap-item:hover .sroadmap-marker-actions,
+.sroadmap-item:focus-within .sroadmap-marker-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sroadmap-item:hover .sroadmap-dot,
+.sroadmap-item:focus-within .sroadmap-dot {
+  opacity: 0.18;
+}
+
+.sroadmap-remove-btn {
+  border: 1px solid #d9dde6;
+  background: #fff;
+  color: #b32525;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.sroadmap-remove-btn svg,
+.sroadmap-move-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.sroadmap-remove-btn svg path,
+.sroadmap-move-btn svg path {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.sroadmap-remove-btn:hover,
+.sroadmap-remove-btn:focus-visible {
+  border-color: #cc4040;
+  box-shadow: 0 3px 10px rgba(179, 37, 37, 0.18);
+  outline: none;
+  transform: scale(1.06);
+}
+
+.sroadmap-move-btn {
+  border: 1px solid #d9dde6;
+  background: #fff;
+  color: #2f3440;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.95;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.sroadmap-move-btn:hover:not(:disabled),
+.sroadmap-move-btn:focus-visible:not(:disabled) {
+  color: #111827;
+  transform: scale(1.1);
+  background: #f4f6fb;
+  border-color: #c9cfdb;
+  outline: none;
+}
+
+.sroadmap-move-btn:disabled {
+  opacity: 0.22;
+  cursor: not-allowed;
 }
 
 .sroadmap-image-trigger {
@@ -898,12 +1011,34 @@ body {
     height: 10px;
   }
 
+  .sroadmap-remove-btn {
+    opacity: 1;
+    pointer-events: auto;
+    width: 20px;
+    height: 20px;
+    font-size: 13px;
+  }
+
   .sroadmap-title {
     font-size: 14px;
   }
 
   .sroadmap-description {
     font-size: 12px;
+  }
+
+  .sroadmap-marker-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sroadmap-remove-btn,
+  .sroadmap-move-btn {
+    opacity: 1;
+    pointer-events: auto;
+    width: 20px;
+    height: 20px;
+    font-size: 13px;
   }
 
   .app-tabs {

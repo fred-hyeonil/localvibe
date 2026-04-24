@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 import re
@@ -10,6 +11,8 @@ from openai import OpenAI
 from app.repositories import load_regions
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
 FEED_TOP_K = 9
 DAY_TRIP_KEYWORDS = {"당일", "당일치기", "원데이", "하루"}
 BROAD_REGION_HINTS = {"광주", "전남"}
@@ -35,7 +38,39 @@ SOURCE_WEIGHT_KEYWORDS = {
     "전라남도_남도여행길잡이": 1,
 }
 LOCALITY_SUFFIXES = ("동", "읍", "면", "리", "구", "시", "군")
-SEA_KEYWORDS = {"바다", "해변", "해수욕장", "오션", "항구", "해안", "섬", "갯벌", "해양", "연안"}
+SEA_KEYWORDS = {
+    "바다",
+    "해변",
+    "해수욕장",
+    "오션",
+    "항구",
+    "해안",
+    "섬",
+    "갯벌",
+    "해양",
+    "연안",
+}
+MEAL_KEYWORDS = {
+    "식당",
+    "음식",
+    "맛집",
+    "식음료",
+    "레스토랑",
+    "외식",
+    "식사",
+    "아침",
+    "점심",
+    "저녁",
+    "브런치",
+    "한식",
+    "양식",
+    "중식",
+    "일식",
+    "분식",
+    "국밥",
+    "고기",
+}
+TRIP_ITEMS_PER_DAY = 5
 
 
 def _tokenize(text: str) -> set[str]:
@@ -61,18 +96,42 @@ def _fallback_answer(user_message: str) -> str:
     ranked_ids = _score_regions(user_message)
     rows = load_regions()
     row_map = {int(row["id"]): row for row in rows}
-    picked = [row_map[region_id]["name"] for region_id in ranked_ids[:FEED_TOP_K] if region_id in row_map]
+    picked = [
+        row_map[region_id]["name"]
+        for region_id in ranked_ids[:FEED_TOP_K]
+        if region_id in row_map
+    ]
     if not picked:
         return "요청하신 조건과 유사한 정보를 찾지 못했습니다."
-    return f"요청하신 내용과 관련해 총 {len(picked)}곳을 추천합니다: {', '.join(picked)}"
+    return (
+        f"요청하신 내용과 관련해 총 {len(picked)}곳을 추천합니다: {', '.join(picked)}"
+    )
 
 
 def _standard_answer_from_ids(region_ids: list[int], rows: list[dict]) -> str:
     row_map = {int(row["id"]): row for row in rows}
-    picked = [str(row_map[region_id]["name"]) for region_id in region_ids[:FEED_TOP_K] if region_id in row_map]
+    picked = [
+        str(row_map[region_id]["name"])
+        for region_id in region_ids[:FEED_TOP_K]
+        if region_id in row_map
+    ]
     if not picked:
         return "요청하신 조건과 유사한 정보를 찾지 못했습니다."
     return f"요청 반영 완료! 3x3 피드를 {len(picked)}곳으로 업데이트했어요: {', '.join(picked)}"
+
+
+def _trip_answer_from_ids(region_ids: list[int], rows: list[dict]) -> str:
+    row_map = {int(row["id"]): row for row in rows}
+    picked = [
+        str(row_map[region_id]["name"])
+        for region_id in region_ids
+        if region_id in row_map
+    ]
+    if not picked:
+        return "요청하신 조건과 유사한 정보를 찾지 못했습니다."
+    preview = ", ".join(picked[:6])
+    suffix = " ..." if len(picked) > 6 else ""
+    return f"요청 반영 완료! 총 {len(picked)}개 장소를 추천했어요: {preview}{suffix}"
 
 
 def _row_region_aliases(row: dict) -> set[str]:
@@ -96,7 +155,9 @@ def _row_region_aliases(row: dict) -> set[str]:
     return aliases
 
 
-def _detect_query_regions(query_text: str, query_tokens: set[str], rows: list[dict]) -> set[str]:
+def _detect_query_regions(
+    query_text: str, query_tokens: set[str], rows: list[dict]
+) -> set[str]:
     alias_universe: set[str] = set()
     for row in rows:
         alias_universe.update(_row_region_aliases(row))
@@ -119,7 +180,13 @@ def _source_weight(source: str) -> int:
 
 
 def _extract_focus_tokens(query_tokens: set[str], query_regions: set[str]) -> set[str]:
-    return {token for token in query_tokens if token not in GENERIC_QUERY_TOKENS and token not in query_regions and len(token) >= 2}
+    return {
+        token
+        for token in query_tokens
+        if token not in GENERIC_QUERY_TOKENS
+        and token not in query_regions
+        and len(token) >= 2
+    }
 
 
 def _build_scoring_tokens(query_tokens: set[str]) -> set[str]:
@@ -131,7 +198,9 @@ def _extract_locality_tokens(query_tokens: set[str]) -> set[str]:
     return {
         token
         for token in query_tokens
-        if len(token) >= 2 and token.endswith(LOCALITY_SUFFIXES) and token not in GENERIC_QUERY_TOKENS
+        if len(token) >= 2
+        and token.endswith(LOCALITY_SUFFIXES)
+        and token not in GENERIC_QUERY_TOKENS
     }
 
 
@@ -176,10 +245,65 @@ def _is_seaside_row(row: dict) -> bool:
             str(row.get("name", "")),
             str(row.get("summary", "")),
             str(row.get("address", "")),
-            " ".join(row.get("recommendedBusinesses", []) if isinstance(row.get("recommendedBusinesses"), list) else []),
+            " ".join(
+                row.get("recommendedBusinesses", [])
+                if isinstance(row.get("recommendedBusinesses"), list)
+                else []
+            ),
         ]
     ).lower()
     return any(keyword in blob for keyword in SEA_KEYWORDS)
+
+
+def _is_meal_row(row: dict) -> bool:
+    rec_values = row.get("recommendedBusinesses", [])
+    rec_blob = " ".join(rec_values if isinstance(rec_values, list) else []).lower()
+    text_blob = " ".join(
+        [
+            str(row.get("name", "")),
+            str(row.get("summary", "")),
+            str(row.get("address", "")),
+            rec_blob,
+        ]
+    ).lower()
+    return any(keyword in text_blob for keyword in MEAL_KEYWORDS)
+
+
+def _reorder_trip_ids_meal_alternating(
+    region_ids: list[int], rows: list[dict], items_per_day: int = TRIP_ITEMS_PER_DAY
+) -> list[int]:
+    if not region_ids:
+        return []
+
+    row_map = {int(row["id"]): row for row in rows}
+    reordered: list[int] = []
+
+    for start in range(0, len(region_ids), items_per_day):
+        day_chunk = region_ids[start : start + items_per_day]
+        meal_ids: list[int] = []
+        sightseeing_ids: list[int] = []
+
+        for region_id in day_chunk:
+            row = row_map.get(region_id)
+            if row and _is_meal_row(row):
+                meal_ids.append(region_id)
+            else:
+                sightseeing_ids.append(region_id)
+
+        day_ordered: list[int] = []
+        for index in range(len(day_chunk)):
+            prefer_meal = index % 2 == 0
+            primary_pool = meal_ids if prefer_meal else sightseeing_ids
+            secondary_pool = sightseeing_ids if prefer_meal else meal_ids
+
+            if primary_pool:
+                day_ordered.append(primary_pool.pop(0))
+            elif secondary_pool:
+                day_ordered.append(secondary_pool.pop(0))
+
+        reordered.extend(day_ordered)
+
+    return reordered
 
 
 def _score_row(
@@ -273,7 +397,9 @@ def _score_regions(user_message: str) -> list[int]:
     query_text = user_message.lower()
     day_trip = any(keyword in query_text for keyword in DAY_TRIP_KEYWORDS)
     query_regions = _detect_query_regions(query_text, query_tokens, rows)
-    specific_regions = {region for region in query_regions if region not in BROAD_REGION_HINTS}
+    specific_regions = {
+        region for region in query_regions if region not in BROAD_REGION_HINTS
+    }
     scoring_tokens = _build_scoring_tokens(query_tokens)
     focus_tokens = _extract_focus_tokens(query_tokens, query_regions)
     locality_tokens = _extract_locality_tokens(query_tokens)
@@ -312,7 +438,9 @@ def _score_regions(user_message: str) -> list[int]:
     return ordered_ids
 
 
-def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = FEED_TOP_K) -> list[int]:
+def _build_recommendation_ids(
+    user_message: str, rows: list[dict], size: int = FEED_TOP_K
+) -> list[int]:
     if not rows:
         return []
 
@@ -320,7 +448,9 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
     query_text = user_message.lower()
     day_trip = any(keyword in query_text for keyword in DAY_TRIP_KEYWORDS)
     query_regions = _detect_query_regions(query_text, query_tokens, rows)
-    specific_regions = {region for region in query_regions if region not in BROAD_REGION_HINTS}
+    specific_regions = {
+        region for region in query_regions if region not in BROAD_REGION_HINTS
+    }
     scoring_tokens = _build_scoring_tokens(query_tokens)
     focus_tokens = _extract_focus_tokens(query_tokens, query_regions)
     locality_tokens = _extract_locality_tokens(query_tokens)
@@ -406,7 +536,11 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
             str(anchor_row.get("province", "")).strip().lower(),
         }
         anchor_keys = {value for value in anchor_keys if value}
-        anchor_city = str(anchor_row.get("address", "")).strip().split(" ")[0].lower() if anchor_row else ""
+        anchor_city = (
+            str(anchor_row.get("address", "")).strip().split(" ")[0].lower()
+            if anchor_row
+            else ""
+        )
         if anchor_keys:
             for region_id, _, _, row in scored:
                 blob = " ".join(
@@ -432,7 +566,11 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
                     str(row.get("address", "")),
                 ]
             ).lower()
-            if anchor_city and anchor_city not in blob and not any(key in blob for key in anchor_keys):
+            if (
+                anchor_city
+                and anchor_city not in blob
+                and not any(key in blob for key in anchor_keys)
+            ):
                 continue
             push(region_id, row)
             if len(picked) >= size:
@@ -447,7 +585,9 @@ def _build_recommendation_ids(user_message: str, rows: list[dict], size: int = F
     return picked[:size]
 
 
-def _normalize_recommended_ids(candidate_ids: list, valid_ids: set[int], fallback_ids: list[int]) -> list[int]:
+def _normalize_recommended_ids(
+    candidate_ids: list, valid_ids: set[int], fallback_ids: list[int]
+) -> list[int]:
     normalized: list[int] = []
     for value in candidate_ids:
         if isinstance(value, int):
@@ -467,6 +607,29 @@ def _normalize_recommended_ids(candidate_ids: list, valid_ids: set[int], fallbac
     return normalized[:FEED_TOP_K]
 
 
+def _normalize_trip_recommended_ids(
+    candidate_ids: list, valid_ids: set[int], fallback_ids: list[int], limit: int
+) -> list[int]:
+    capped_limit = max(1, int(limit))
+    normalized: list[int] = []
+    for value in candidate_ids:
+        if isinstance(value, int):
+            candidate = value
+        elif isinstance(value, str) and value.isdigit():
+            candidate = int(value)
+        else:
+            continue
+        if candidate in valid_ids and candidate not in normalized:
+            normalized.append(candidate)
+
+    for fallback_id in fallback_ids:
+        if fallback_id in valid_ids and fallback_id not in normalized:
+            normalized.append(fallback_id)
+        if len(normalized) >= capped_limit:
+            break
+    return normalized[:capped_limit]
+
+
 def get_chat_result(user_message: str) -> dict:
     api_key: Optional[str] = os.getenv("OPEN_API_KEY") or os.getenv("OPENAI_API_KEY")
     model = "gpt-4o-mini"
@@ -475,7 +638,9 @@ def get_chat_result(user_message: str) -> dict:
     valid_region_ids = {int(row["id"]) for row in rows}
     ranked_ids = _score_regions(user_message)
     baseline_ids = _build_recommendation_ids(user_message, rows, FEED_TOP_K)
-    recommended_ids = _normalize_recommended_ids(baseline_ids, valid_region_ids, baseline_ids)
+    recommended_ids = _normalize_recommended_ids(
+        baseline_ids, valid_region_ids, baseline_ids
+    )
     if not api_key:
         fallback = _standard_answer_from_ids(recommended_ids, rows)
         answer = f"{scope_notice}\n{fallback}" if scope_notice else fallback
@@ -525,27 +690,52 @@ def get_chat_result(user_message: str) -> dict:
         return {"answer": answer, "recommendedRegionIds": recommended_ids}
 
 
-def get_trip_chat_result(user_message: str, trip_duration: dict) -> dict:
+def get_trip_chat_result(
+    user_message: str,
+    trip_duration: dict,
+    current_location_ids: Optional[list[int]] = None,
+    exclude_location_id: Optional[int] = None,
+) -> dict:
     """Trip planner용 채팅 - OpenAI 답변만 반환 (자동 메시지 없음)"""
     api_key: Optional[str] = os.getenv("OPEN_API_KEY") or os.getenv("OPENAI_API_KEY")
     model = "gpt-4o-mini"
     rows = load_regions()
     valid_region_ids = {int(row["id"]) for row in rows}
-    
+
+    # 현재 로드맵에 있는 ID들을 set으로 변환
+    current_ids_set = set(current_location_ids or [])
+    # 교체 대상 ID도 제외
+    if exclude_location_id:
+        current_ids_set.add(exclude_location_id)
+
     # tripDuration 기반 최대 개수 계산
     days = trip_duration.get("days", 1)
-    max_locations = max(1, days * 5)
-    
-    baseline_ids = _build_recommendation_ids(user_message, rows, max_locations)
-    recommended_ids = _normalize_recommended_ids(baseline_ids, valid_region_ids, baseline_ids)
-    
+    max_locations = max(1, days * TRIP_ITEMS_PER_DAY)
+
+    candidate_limit = max_locations
+    # 교체 요청일 때는 제외 필터로 후보가 급감할 수 있어 탐색 폭을 넓혀둔다.
+    if exclude_location_id is not None:
+        candidate_limit = max(max_locations + 20, max_locations * 3)
+
+    baseline_ids = _build_recommendation_ids(user_message, rows, candidate_limit)
+    # 현재 로드맵에 이미 있는 것들 제외
+    baseline_ids = [id for id in baseline_ids if id not in current_ids_set]
+
+    recommended_ids = _normalize_trip_recommended_ids(
+        baseline_ids,
+        valid_region_ids,
+        baseline_ids,
+        max_locations,
+    )
+    recommended_ids = _reorder_trip_ids_meal_alternating(recommended_ids, rows)
+
     if not api_key:
         # API 키 없을 때는 기본 답변만 반환 (메시지 없이)
         return {
             "answer": "추천 장소를 조회했습니다.",
-            "recommendedRegionIds": recommended_ids
+            "recommendedRegionIds": recommended_ids,
         }
-    
+
     client = OpenAI(api_key=api_key)
     region_context = _build_region_context()
     nights = trip_duration.get("nights", 0)
@@ -553,9 +743,10 @@ def get_trip_chat_result(user_message: str, trip_duration: dict) -> dict:
         "당신은 LocalVibe 여행 계획 도우미입니다. "
         f"사용자는 {nights}박 {days}일 여행을 계획 중입니다. "
         f"최대 {max_locations}개 장소를 추천할 수 있습니다. "
-        "질문에 친절하고 구체적으로 답하세요."
+        "질문에 친절하고 구체적으로 답하세요. "
+        "응답은 반드시 json 객체 한 개로만 반환하세요."
     )
-    
+
     try:
         response = client.chat.completions.create(
             model=model,
@@ -568,7 +759,7 @@ def get_trip_chat_result(user_message: str, trip_duration: dict) -> dict:
                     "content": (
                         "데이터 목록:\n"
                         f"{region_context}\n\n"
-                        "다음 형식으로 답하세요: "
+                        "다음 json 형식으로 답하세요: "
                         f'{{"answer":"...", "recommendedRegionIds":[id1,id2,...,max {max_locations}개]}}\n'
                         f"질문: {user_message}"
                     ),
@@ -577,16 +768,32 @@ def get_trip_chat_result(user_message: str, trip_duration: dict) -> dict:
         )
         content = response.choices[0].message.content or ""
         parsed = json.loads(content)
-        answer = parsed.get("answer") or "추천 장소를 찾았습니다."
+        _llm_answer = parsed.get("answer") or "추천 장소를 찾았습니다."
         ids = parsed.get("recommendedRegionIds")
         if not isinstance(ids, list):
             ids = []
-        ids = _normalize_recommended_ids(ids, valid_region_ids, baseline_ids)[:max_locations]
-        
+        # 현재 로드맵에 이미 있는 것들 제외
+        ids = [id for id in ids if id not in current_ids_set]
+
+        ids = _normalize_trip_recommended_ids(
+            ids,
+            valid_region_ids,
+            baseline_ids,
+            max_locations,
+        )
+        ids = _reorder_trip_ids_meal_alternating(ids, rows)
+        answer = _trip_answer_from_ids(ids, rows)
+
         # OpenAI 답변만 그대로 반환 (자동 메시지 X)
         return {"answer": answer, "recommendedRegionIds": ids}
     except Exception:
+        logger.exception(
+            "[CHAT] get_trip_chat_result failed message=%s nights=%s days=%s",
+            user_message[:120],
+            trip_duration.get("nights"),
+            trip_duration.get("days"),
+        )
         return {
             "answer": "추천을 처리하는 중 오류가 발생했습니다.",
-            "recommendedRegionIds": recommended_ids
+            "recommendedRegionIds": recommended_ids,
         }
