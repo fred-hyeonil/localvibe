@@ -1,7 +1,34 @@
+import { googleLogout } from "@react-oauth/google";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function StartNavbar() {
   const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem("lv_user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const syncUser = () => {
+      try {
+        const raw = localStorage.getItem("lv_user");
+        setUser(raw ? JSON.parse(raw) : null);
+      } catch {
+        setUser(null);
+      }
+    };
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("lv-auth-changed", syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("lv-auth-changed", syncUser);
+    };
+  }, []);
 
   return (
     <div style={styles.nav}>
@@ -10,12 +37,41 @@ export default function StartNavbar() {
       </h1>
 
       <div style={styles.right}>
-        <button style={styles.btn} onClick={() => navigate("/login")}>
-          Login
-        </button>
-        <button style={styles.btn} onClick={() => navigate("/signin")}>
-          Sign in
-        </button>
+        {user ? (
+          <>
+            <div style={styles.profileWrap}>
+              {user.picture ? (
+                <img src={user.picture} alt="profile" style={styles.avatar} />
+              ) : (
+                <div style={styles.avatarFallback}>
+                  {String(user.name || user.email || "U").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <span style={styles.profileName}>{user.name || user.email}</span>
+            </div>
+            <button
+              style={styles.btn}
+              onClick={() => {
+                googleLogout();
+                localStorage.removeItem("lv_access_token");
+                localStorage.removeItem("lv_user");
+                window.dispatchEvent(new Event("lv-auth-changed"));
+                navigate("/login");
+              }}
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <>
+            <button style={styles.btn} onClick={() => navigate("/login")}>
+              Login
+            </button>
+            <button style={styles.btn} onClick={() => navigate("/signin")}>
+              Sign in
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -43,6 +99,38 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "12px",
+  },
+  profileWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    maxWidth: "240px",
+  },
+  avatar: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "999px",
+    objectFit: "cover",
+    border: "1px solid #ddd",
+  },
+  avatarFallback: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "999px",
+    background: "#ddd",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: "14px",
+    color: "#333",
+  },
+  profileName: {
+    fontSize: "14px",
+    color: "#222",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   btn: {
     padding: "10px 18px",
