@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -18,8 +20,8 @@ class TripDuration(BaseModel):
 class TripChatRequest(BaseModel):
     message: str
     tripDuration: TripDuration
-    currentLocationIds: list[int] | None = None
-    excludeLocationId: int | None = None
+    currentLocationIds: Optional[list[int]] = None
+    excludeLocationId: Optional[int] = None
 
 
 class TripChatResponse(BaseModel):

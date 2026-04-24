@@ -693,8 +693,8 @@ def get_chat_result(user_message: str) -> dict:
 def get_trip_chat_result(
     user_message: str,
     trip_duration: dict,
-    current_location_ids: list[int] | None = None,
-    exclude_location_id: int | None = None,
+    current_location_ids: Optional[list[int]] = None,
+    exclude_location_id: Optional[int] = None,
 ) -> dict:
     """Trip planner용 채팅 - OpenAI 답변만 반환 (자동 메시지 없음)"""
     api_key: Optional[str] = os.getenv("OPEN_API_KEY") or os.getenv("OPENAI_API_KEY")
