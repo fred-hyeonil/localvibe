@@ -18,6 +18,8 @@ class TripDuration(BaseModel):
 class TripChatRequest(BaseModel):
     message: str
     tripDuration: TripDuration
+    currentLocationIds: list[int] | None = None
+    excludeLocationId: int | None = None
 
 
 class TripChatResponse(BaseModel):
