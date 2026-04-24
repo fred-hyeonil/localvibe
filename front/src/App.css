@@ -246,15 +246,50 @@ body {
 
 .kakao-map-canvas {
   width: 100%;
-  height: 260px;
+  height: 360px;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.kakao-map-iframe {
+  width: calc(100% + 300px);
+  height: 100%;
+  border: 0;
+  background: #fff;
+  margin: 0;
+  transform: translateX(-300px);
+}
+
+.kakao-map-fallback-viewport {
+  margin-top: 8px;
+  border: 1px solid #e2e6ef;
+  background: #fff;
+  overflow: hidden;
+}
+
+.kakao-map-static {
+  margin-top: 8px;
+  border: 1px solid #e2e6ef;
+  display: block;
 }
 
 .kakao-map-error {
   margin: 0;
   color: #6a7282;
   font-size: 14px;
+}
+
+.kakao-map-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #2c4ac7;
+  font-size: 13px;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.kakao-map-link:hover {
+  text-decoration: underline;
 }
 
 .insight-grid {
@@ -265,10 +300,11 @@ body {
 }
 
 .insight-card {
-  border: 1px solid #e6e9f0;
-  border-radius: 12px;
-  padding: 12px 14px;
-  background: #fbfcff;
+  border: 1px solid #e2e7f3;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
+  box-shadow: 0 4px 14px rgba(33, 56, 117, 0.06);
 }
 
 .insight-card h3 {
@@ -278,10 +314,23 @@ body {
 
 .insight-card ul {
   margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  font-size: 15px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.insight-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #d9e2ff;
+  background: #f3f7ff;
+  color: #2a3f85;
+  font-weight: 600;
 }
 
 .main-footer {

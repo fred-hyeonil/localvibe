@@ -26,6 +26,12 @@ CACHE_TTL_SECONDS = 600
 DEFAULT_BASE_ENDPOINTS = [
     "https://apis.data.go.kr/6460000/jnCourseInfo",
 ]
+BEACH_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/beachInfo/getBeachInfoList"
+FOOD_INFO_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/jnFoodInfo/getFoodInfoList"
+FOOD_IMG_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/jnFoodInfo/getFoodImgList"
+COASTAL_DEFAULT_ENDPOINT = "https://apis.data.go.kr/B554305/coastalVillage/getTourismResourceList"
+TENT_INFO_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/tentInfo/getTentInfoList"
+TENT_IMG_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/tentInfo/getTentInfoFile"
 KTO_DEFAULT_BASE_URL = "https://apis.data.go.kr/B551011/KorService2"
 BASE_TO_LIST_METHODS = {
     "jnCourseInfo": ["getCoursePlanList", "getCourseList", "getCourseImgList"],
@@ -167,6 +173,37 @@ def _first_text(item: ET.Element, keys: list[str]) -> str:
         node = item.find(key)
         if node is not None and node.text and node.text.strip():
             return node.text.strip()
+    return ""
+
+
+def _first_text_by_tag_tokens(item: ET.Element, tag_tokens: list[str]) -> str:
+    for child in list(item):
+        tag_lower = str(child.tag or "").lower()
+        if any(token in tag_lower for token in tag_tokens):
+            value = (child.text or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _first_json_text(item: dict, keys: list[str]) -> str:
+    for key in keys:
+        value = item.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text and text.lower() not in {"none", "null", "nan"}:
+            return text
+    return ""
+
+
+def _first_json_text_by_key_tokens(item: dict, key_tokens: list[str]) -> str:
+    for key, value in item.items():
+        key_lower = str(key).lower()
+        if any(token in key_lower for token in key_tokens):
+            text = str(value or "").strip()
+            if text and text.lower() not in {"none", "null", "nan"}:
+                return text
     return ""
 
 
@@ -360,6 +397,36 @@ def _extract_json_items(payload: dict) -> list[dict]:
     return []
 
 
+def _extract_flexible_json_items(payload: dict) -> list[dict]:
+    candidates = [
+        payload.get("response", {}).get("body", {}).get("items", {}).get("item"),
+        payload.get("response", {}).get("body", {}).get("items"),
+        payload.get("response", {}).get("body", {}).get("data"),
+        payload.get("response", {}).get("items", {}).get("item"),
+        payload.get("response", {}).get("items"),
+        payload.get("body", {}).get("items", {}).get("item"),
+        payload.get("body", {}).get("items"),
+        payload.get("body", {}).get("data"),
+        payload.get("items", {}).get("item"),
+        payload.get("items"),
+        payload.get("data"),
+        payload.get("result"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            rows = [row for row in candidate if isinstance(row, dict)]
+            if rows:
+                return rows
+        if isinstance(candidate, dict):
+            nested = candidate.get("item")
+            if isinstance(nested, list):
+                rows = [row for row in nested if isinstance(row, dict)]
+                if rows:
+                    return rows
+            return [candidate]
+    return []
+
+
 def _fetch_json_items(
     url: str,
     params: dict[str, str],
@@ -396,6 +463,47 @@ def _fetch_json_items(
                 time.sleep(base_retry_wait * attempt)
                 continue
             logger.warning("[KTO] request failed endpoint=%s error=%s", url, exc)
+            return []
+    return []
+
+
+def _fetch_open_json_items(
+    url: str,
+    params: dict[str, str],
+    timeout_seconds: int,
+    retry_count: int,
+    base_retry_wait: float,
+    rate_limit_wait: float,
+    source_tag: str,
+) -> list[dict]:
+    request_url = f"{url}?{urllib.parse.urlencode(params)}"
+    for attempt in range(1, retry_count + 1):
+        try:
+            request = urllib.request.Request(url=request_url, method="GET")
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="ignore")
+            payload = json.loads(body)
+            header = payload.get("response", {}).get("header", {})
+            result_code = str(header.get("resultCode", "")).strip()
+            result_msg = str(header.get("resultMsg", "")).strip()
+            if result_code and result_code not in {"0000", "00"}:
+                logger.warning("[%s] api error endpoint=%s code=%s msg=%s", source_tag, url, result_code, result_msg)
+                return []
+            return _extract_flexible_json_items(payload)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < retry_count:
+                time.sleep(rate_limit_wait * attempt)
+                continue
+            if attempt < retry_count:
+                time.sleep(base_retry_wait * attempt)
+                continue
+            logger.warning("[%s] http failed endpoint=%s code=%s", source_tag, url, exc.code)
+            return []
+        except Exception as exc:
+            if attempt < retry_count:
+                time.sleep(base_retry_wait * attempt)
+                continue
+            logger.warning("[%s] request failed endpoint=%s error=%s", source_tag, url, exc)
             return []
     return []
 
@@ -677,18 +785,26 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
         image_url = _fallback_image_for_name(plan_name)
 
     recommended: list[str] = []
-    if course_context.get("courseCategory"):
-        recommended.append(course_context["courseCategory"])
-    if course_context.get("coursePersonType"):
-        recommended.append(course_context["coursePersonType"])
-    if course_context.get("coursePeriod"):
-        recommended.append(course_context["coursePeriod"])
+    category = str(course_context.get("courseCategory") or "").strip()
+    person_type = str(course_context.get("coursePersonType") or "").strip()
+    period = str(course_context.get("coursePeriod") or "").strip()
+    if category and not category.isdigit():
+        recommended.append(category)
+    if person_type and not person_type.isdigit():
+        recommended.append(f"{person_type} 맞춤")
+    if period and not period.isdigit():
+        recommended.append(f"{period} 추천")
+    if not recommended:
+        recommended = ["로컬 관광", "체험형 방문"]
 
     target_customers: list[str] = []
-    if course_context.get("coursePersonCount"):
-        target_customers.append(f"추천 인원: {course_context['coursePersonCount']}")
+    person_count = str(course_context.get("coursePersonCount") or "").strip()
+    if person_count:
+        target_customers.append(f"추천 인원: {person_count}")
     if plan_phone:
         target_customers.append(f"전화문의: {plan_phone}")
+    if not target_customers:
+        target_customers = ["로컬 여행객", "당일 방문객"]
 
     region_id_key = f"{plan_course_id}:{plan_info_id or plan_name}"
     return {
@@ -705,6 +821,508 @@ def _build_region_from_plan(plan_item: ET.Element, course_context: dict, image_m
         "targetCustomers": target_customers,
         "dataSource": "전라남도_남도여행길잡이_테마여행 정보",
     }
+
+
+def _normalize_beach_item(item: ET.Element, source_name: str) -> dict:
+    beach_id = _first_text(item, ["beachId", "beachKey", "id", "idx"])
+    name = _first_text(item, ["beachTitle", "beachNm", "title", "name", "beachName"])
+    if not name:
+        name = _first_text_by_tag_tokens(item, ["beach", "title", "name"])
+    if not name:
+        return {}
+
+    summary = _first_text(item, ["beachContents", "contents", "summary", "description", "introduce", "overview"])
+    if not summary:
+        summary = _first_text_by_tag_tokens(item, ["content", "summary", "describe", "intro", "overview"])
+    if not summary:
+        summary = "전라남도 해수욕장 공개데이터 기반 장소 정보입니다."
+
+    addr_main = _first_text(item, ["address", "addr", "addr1", "roadAddress", "jibunAddress", "beachAddr"])
+    addr_detail = _first_text(item, ["addressDetail", "addrDetail"])
+    area_name = _first_text(item, ["searchArea", "areaName", "city", "sigungu"])
+    address = " ".join(part for part in [addr_main, addr_detail] if part).strip()
+    if not address and area_name:
+        address = area_name
+
+    image_url = _sanitize_image_url(
+        _first_text(item, ["beachImg", "imgUrl", "imageUrl", "fileUrl", "thumbnail", "photoUrl"])
+    )
+    if not image_url:
+        image_url = _sanitize_image_url(_extract_first_http_url(item))
+    if not image_url:
+        image_url = _fallback_image_for_name(name)
+
+    region = _extract_region_from_address(address)
+    if region == "정보없음" and area_name:
+        region = area_name
+
+    phone = _first_text(item, ["phone", "tel", "contact"])
+    target_customers = ["피서/관광 방문객", "가족 단위 고객"]
+    if phone:
+        target_customers.append(f"전화문의: {phone}")
+
+    if "야간" in summary or "밤" in summary:
+        busy_hours = ["주말 19:00-22:00"]
+    else:
+        busy_hours = ["주말 13:00-17:00"]
+
+    source_key = beach_id.strip() or f"{name}|{address}"
+    final_summary = f"{summary} (주소: {address})" if address and "주소:" not in summary else summary
+
+    return {
+        "id": _stable_region_id(f"beach:{source_key}"),
+        "sourceId": beach_id.strip() or source_key,
+        "name": name,
+        "region": region,
+        "province": region,
+        "address": address,
+        "imageUrl": image_url,
+        "summary": final_summary,
+        "recommendedBusinesses": ["해안 관광", "자연/야외", "로컬 여행"],
+        "busyHours": busy_hours,
+        "targetCustomers": target_customers,
+        "dataSource": source_name,
+    }
+
+
+def _fetch_beach_regions(jn_service_key: str, start_page: int, page_size: int) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_BEACH_ENABLE", "1").strip() == "0":
+        return []
+
+    endpoint = os.getenv("JN_BEACH_ENDPOINT_URL", BEACH_DEFAULT_ENDPOINT).strip() or BEACH_DEFAULT_ENDPOINT
+    source_name = "전라남도_해수욕장정보"
+    max_items = max(1, int(os.getenv("JN_BEACH_MAX_ITEMS", "90")))
+    request_interval = float(os.getenv("JN_BEACH_REQUEST_INTERVAL", "0.25"))
+    empty_area_break = max(1, int(os.getenv("JN_BEACH_EMPTY_AREA_BREAK", "3")))
+    area_codes = [
+        code.strip()
+        for code in os.getenv(
+            "JN_BEACH_AREAS",
+            "AREA_MOKPO,AREA_YEOSU,AREA_GOHEUNG,AREA_BOSEONG,AREA_JANGHEUG,AREA_HAENAM,AREA_MUAN,AREA_HAMPYEONG,AREA_YEONGGWANG,AREA_WANDO,AREA_JINDO,AREA_SINAN,AREA_SUNCHEON",
+        ).split(",")
+        if code.strip()
+    ]
+
+    rows: list[dict] = []
+    seen_source_ids: set[str] = set()
+    empty_streak = 0
+
+    for area_code in area_codes:
+        items = _fetch_xml_items(
+            endpoint,
+            jn_service_key,
+            int(os.getenv("JN_BEACH_PAGE_NO", str(start_page))),
+            int(os.getenv("JN_BEACH_NUM_ROWS", str(page_size))),
+            extra_params={"searchArea": area_code},
+        )
+        if not items:
+            empty_streak += 1
+            if empty_streak >= empty_area_break:
+                logger.warning("[BEACH] empty area streak reached %d, stop early", empty_streak)
+                break
+            continue
+
+        empty_streak = 0
+        for item in items:
+            normalized = _normalize_beach_item(item, source_name)
+            if not normalized:
+                continue
+            source_id = str(normalized.get("sourceId", "")).strip()
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+            rows.append(normalized)
+            if len(rows) >= max_items:
+                break
+
+        if len(rows) >= max_items:
+            break
+        if request_interval > 0:
+            time.sleep(request_interval)
+
+    logger.info("[BEACH] normalized items=%d", len(rows))
+    return rows
+
+
+def _normalize_food_item(item: ET.Element, source_name: str, image_map: dict[str, str]) -> dict:
+    food_id = _first_text(item, ["foodId", "foodKey", "id", "idx"])
+    name = _first_text(item, ["foodNm", "foodName", "foodTitle", "title", "name", "shopNm"])
+    if not name:
+        name = _first_text_by_tag_tokens(item, ["food", "shop", "name", "title"])
+    if not name:
+        return {}
+
+    summary = _first_text(item, ["foodContents", "contents", "summary", "description", "overview", "menu"])
+    if not summary:
+        summary = _first_text_by_tag_tokens(item, ["content", "summary", "describe", "menu", "overview"])
+    if not summary:
+        summary = "전라남도 남도여행길잡이 먹거리 정보입니다."
+
+    addr_main = _first_text(item, ["address", "addr", "addr1", "roadAddress", "jibunAddress", "foodAddr"])
+    addr_detail = _first_text(item, ["addressDetail", "addrDetail"])
+    area_name = _first_text(item, ["foodArea", "areaName", "city", "sigungu", "foodRegion"])
+    address = " ".join(part for part in [addr_main, addr_detail] if part).strip()
+    if not address and area_name:
+        address = area_name
+
+    image_url = ""
+    for key in [food_id, name]:
+        normalized = _normalize_name_key(key)
+        if normalized and image_map.get(normalized):
+            image_url = image_map[normalized]
+            break
+    if not image_url:
+        image_url = _sanitize_image_url(
+            _first_text(item, ["foodImg", "imgUrl", "imageUrl", "fileUrl", "thumbnail", "photoUrl"])
+        )
+    if not image_url:
+        image_url = _sanitize_image_url(_extract_first_http_url(item))
+    if not image_url:
+        image_url = _fallback_image_for_name(name)
+
+    region = _extract_region_from_address(address)
+    if region == "정보없음" and area_name:
+        region = area_name
+
+    phone = _first_text(item, ["phone", "tel", "contact"])
+    target_customers = ["식도락 여행객", "로컬 방문객"]
+    if phone:
+        target_customers.append(f"전화문의: {phone}")
+
+    if any(token in summary for token in ["조식", "아침"]):
+        busy_hours = ["08:00-10:00", "12:00-14:00"]
+    else:
+        busy_hours = ["12:00-14:00", "18:00-20:00"]
+
+    source_key = food_id.strip() or f"{name}|{address}"
+    final_summary = f"{summary} (주소: {address})" if address and "주소:" not in summary else summary
+
+    return {
+        "id": _stable_region_id(f"food:{source_key}"),
+        "sourceId": food_id.strip() or source_key,
+        "name": name,
+        "region": region,
+        "province": region,
+        "address": address,
+        "imageUrl": image_url,
+        "summary": final_summary,
+        "recommendedBusinesses": ["식음료", "남도 먹거리", "로컬 맛집"],
+        "busyHours": busy_hours,
+        "targetCustomers": target_customers,
+        "dataSource": source_name,
+    }
+
+
+def _fetch_food_regions(jn_service_key: str, start_page: int, page_size: int) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_FOOD_ENABLE", "1").strip() == "0":
+        return []
+
+    info_endpoint = os.getenv("JN_FOOD_INFO_ENDPOINT_URL", FOOD_INFO_DEFAULT_ENDPOINT).strip() or FOOD_INFO_DEFAULT_ENDPOINT
+    img_endpoint = os.getenv("JN_FOOD_IMG_ENDPOINT_URL", FOOD_IMG_DEFAULT_ENDPOINT).strip() or FOOD_IMG_DEFAULT_ENDPOINT
+    source_name = "전라남도_남도여행길잡이_먹거리 정보"
+    max_items = max(1, int(os.getenv("JN_FOOD_MAX_ITEMS", "120")))
+    image_max_requests = max(1, int(os.getenv("JN_FOOD_IMAGE_MAX_REQUEST", "40")))
+    request_interval = float(os.getenv("JN_FOOD_REQUEST_INTERVAL", "0.25"))
+
+    info_items = _fetch_xml_items(
+        info_endpoint,
+        jn_service_key,
+        int(os.getenv("JN_FOOD_PAGE_NO", str(start_page))),
+        int(os.getenv("JN_FOOD_NUM_ROWS", str(page_size))),
+    )
+    if not info_items:
+        logger.warning("[FOOD] empty info list")
+        return []
+
+    info_items = info_items[:max_items]
+
+    image_map: dict[str, str] = {}
+    requested = 0
+    for item in info_items:
+        if requested >= image_max_requests:
+            break
+        food_id = _first_text(item, ["foodId", "foodKey", "id", "idx"])
+        if not food_id:
+            continue
+        requested += 1
+        img_items = _fetch_xml_items(
+            img_endpoint,
+            jn_service_key,
+            int(os.getenv("JN_FOOD_IMG_PAGE_NO", "1")),
+            int(os.getenv("JN_FOOD_IMG_NUM_ROWS", "10")),
+            extra_params={"foodId": food_id},
+        )
+        for img_item in img_items:
+            image_url = _sanitize_image_url(
+                _first_text(img_item, ["foodFileUrl", "imgUrl", "imageUrl", "fileUrl", "thumbnail"])
+            )
+            if not image_url:
+                image_url = _sanitize_image_url(_extract_first_http_url(img_item))
+            if not image_url:
+                continue
+            item_food_id = _first_text(img_item, ["foodId", "foodKey", "id", "idx"]) or food_id
+            image_map[_normalize_name_key(item_food_id)] = image_url
+            image_map[_normalize_name_key(food_id)] = image_url
+            break
+
+        if request_interval > 0:
+            time.sleep(request_interval)
+
+    rows: list[dict] = []
+    seen_source_ids: set[str] = set()
+    for item in info_items:
+        normalized = _normalize_food_item(item, source_name, image_map)
+        if not normalized:
+            continue
+        source_id = str(normalized.get("sourceId", "")).strip()
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        rows.append(normalized)
+
+    logger.info("[FOOD] normalized items=%d image_keys=%d", len(rows), len(image_map))
+    return rows
+
+
+def _normalize_tent_item(item: ET.Element, source_name: str, image_map: dict[str, str]) -> dict:
+    tent_id = _first_text(item, ["tentId", "tentKey", "id", "idx"])
+    name = _first_text(item, ["tentNm", "tentName", "title", "name"])
+    if not name:
+        name = _first_text_by_tag_tokens(item, ["tent", "name", "title"])
+    if not name:
+        return {}
+
+    summary = _first_text(item, ["tentContents", "contents", "summary", "description", "overview", "introduce"])
+    if not summary:
+        summary = _first_text_by_tag_tokens(item, ["content", "summary", "describe", "intro", "overview"])
+    if not summary:
+        summary = "전라남도 텐트촌 공개데이터 기반 장소 정보입니다."
+
+    addr_main = _first_text(item, ["address", "addr", "addr1", "roadAddress", "jibunAddress", "tentAddr"])
+    addr_detail = _first_text(item, ["addressDetail", "addrDetail"])
+    area_name = _first_text(item, ["tentArea", "areaName", "city", "sigungu", "region"])
+    address = " ".join(part for part in [addr_main, addr_detail] if part).strip()
+    if not address and area_name:
+        address = area_name
+
+    image_url = ""
+    for key in [tent_id, name]:
+        normalized = _normalize_name_key(key)
+        if normalized and image_map.get(normalized):
+            image_url = image_map[normalized]
+            break
+    if not image_url:
+        image_url = _sanitize_image_url(_first_text(item, ["tentImg", "imgUrl", "imageUrl", "fileUrl", "thumbnail"]))
+    if not image_url:
+        image_url = _sanitize_image_url(_extract_first_http_url(item))
+    if not image_url:
+        image_url = _fallback_image_for_name(name)
+
+    region = _extract_region_from_address(address)
+    if region == "정보없음" and area_name:
+        region = area_name
+
+    phone = _first_text(item, ["phone", "tel", "contact"])
+    target_customers = ["캠핑/야외 방문객", "가족 단위 고객"]
+    if phone:
+        target_customers.append(f"전화문의: {phone}")
+
+    source_key = tent_id.strip() or f"{name}|{address}"
+    final_summary = f"{summary} (주소: {address})" if address and "주소:" not in summary else summary
+
+    return {
+        "id": _stable_region_id(f"tent:{source_key}"),
+        "sourceId": tent_id.strip() or source_key,
+        "name": name,
+        "region": region,
+        "province": region,
+        "address": address,
+        "imageUrl": image_url,
+        "summary": final_summary,
+        "recommendedBusinesses": ["캠핑/야외", "체류형 관광", "로컬 여행"],
+        "busyHours": ["주말 14:00-18:00"],
+        "targetCustomers": target_customers,
+        "dataSource": source_name,
+    }
+
+
+def _fetch_tent_regions(jn_service_key: str, start_page: int, page_size: int) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_TENT_ENABLE", "1").strip() == "0":
+        return []
+
+    info_endpoint = os.getenv("JN_TENT_INFO_ENDPOINT_URL", TENT_INFO_DEFAULT_ENDPOINT).strip() or TENT_INFO_DEFAULT_ENDPOINT
+    img_endpoint = os.getenv("JN_TENT_IMG_ENDPOINT_URL", TENT_IMG_DEFAULT_ENDPOINT).strip() or TENT_IMG_DEFAULT_ENDPOINT
+    source_name = "전라남도_텐트촌 정보"
+    max_items = max(1, int(os.getenv("JN_TENT_MAX_ITEMS", "80")))
+    image_max_requests = max(1, int(os.getenv("JN_TENT_IMAGE_MAX_REQUEST", "40")))
+    request_interval = float(os.getenv("JN_TENT_REQUEST_INTERVAL", "0.25"))
+
+    info_items = _fetch_xml_items(
+        info_endpoint,
+        jn_service_key,
+        int(os.getenv("JN_TENT_PAGE_NO", str(start_page))),
+        int(os.getenv("JN_TENT_NUM_ROWS", str(page_size))),
+    )
+    if not info_items:
+        logger.warning("[TENT] empty info list")
+        return []
+
+    info_items = info_items[:max_items]
+    image_map: dict[str, str] = {}
+    requested = 0
+    for item in info_items:
+        if requested >= image_max_requests:
+            break
+        tent_id = _first_text(item, ["tentId", "tentKey", "id", "idx"])
+        if not tent_id:
+            continue
+        requested += 1
+        img_items = _fetch_xml_items(
+            img_endpoint,
+            jn_service_key,
+            int(os.getenv("JN_TENT_IMG_PAGE_NO", "1")),
+            int(os.getenv("JN_TENT_IMG_NUM_ROWS", "10")),
+            extra_params={"tentId": tent_id},
+        )
+        for img_item in img_items:
+            image_url = _sanitize_image_url(
+                _first_text(img_item, ["tentFileUrl", "imgUrl", "imageUrl", "fileUrl", "thumbnail"])
+            )
+            if not image_url:
+                image_url = _sanitize_image_url(_extract_first_http_url(img_item))
+            if not image_url:
+                continue
+            item_tent_id = _first_text(img_item, ["tentId", "tentKey", "id", "idx"]) or tent_id
+            image_map[_normalize_name_key(item_tent_id)] = image_url
+            image_map[_normalize_name_key(tent_id)] = image_url
+            break
+        if request_interval > 0:
+            time.sleep(request_interval)
+
+    rows: list[dict] = []
+    seen_source_ids: set[str] = set()
+    for item in info_items:
+        normalized = _normalize_tent_item(item, source_name, image_map)
+        if not normalized:
+            continue
+        source_id = str(normalized.get("sourceId", "")).strip()
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        rows.append(normalized)
+
+    logger.info("[TENT] normalized items=%d image_keys=%d", len(rows), len(image_map))
+    return rows
+
+
+def _normalize_coastal_item(item: dict, source_name: str) -> dict:
+    coastal_id = _first_json_text(item, ["resourceId", "tourismresourceId", "resourceNo", "id", "idx"])
+    name = _first_json_text(item, ["resourceName", "tourismresourceNm", "title", "name", "tourNm", "spotNm"])
+    if not name:
+        name = _first_json_text_by_key_tokens(item, ["resource", "name", "title", "tour"])
+    if not name:
+        return {}
+
+    summary = _first_json_text(item, ["overview", "description", "summary", "contents", "introduce", "explain"])
+    if not summary:
+        summary = _first_json_text_by_key_tokens(item, ["summary", "overview", "content", "describe", "intro"])
+    if not summary:
+        summary = "전라남도 해안가마을 관광자원 공개데이터 기반 정보입니다."
+
+    addr_main = _first_json_text(item, ["address", "addr", "addr1", "roadAddress", "jibunAddress", "location"])
+    addr_detail = _first_json_text(item, ["addressDetail", "addrDetail"])
+    region_name = _first_json_text(item, ["sigungu", "city", "region", "areaName", "county"])
+    address = " ".join(part for part in [addr_main, addr_detail] if part).strip()
+    if not address and region_name:
+        address = region_name
+
+    image_url = _sanitize_image_url(
+        _first_json_text(item, ["imgUrl", "imageUrl", "photoUrl", "thumbnail", "resourceImg", "firstImage"])
+    )
+    if not image_url:
+        image_url = _fallback_image_for_name(name)
+
+    region = _extract_region_from_address(address)
+    if region == "정보없음" and region_name:
+        region = region_name
+
+    category = _first_json_text(item, ["category", "type", "resourceType"])
+    recommended = ["해안 관광", "로컬 여행"]
+    if category:
+        recommended.append(category)
+
+    source_key = coastal_id.strip() or f"{name}|{address}"
+    final_summary = f"{summary} (주소: {address})" if address and "주소:" not in summary else summary
+
+    return {
+        "id": _stable_region_id(f"coastal:{source_key}"),
+        "sourceId": coastal_id.strip() or source_key,
+        "name": name,
+        "region": region,
+        "province": region,
+        "address": address,
+        "imageUrl": image_url,
+        "summary": final_summary,
+        "recommendedBusinesses": list(dict.fromkeys(recommended)),
+        "busyHours": ["주말 13:00-17:00"],
+        "targetCustomers": ["해안 여행 방문객", "로컬 탐방객"],
+        "dataSource": source_name,
+    }
+
+
+def _fetch_coastal_regions(jn_service_key: str, start_page: int, page_size: int) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_COASTAL_ENABLE", "1").strip() == "0":
+        return []
+
+    endpoint = os.getenv("JN_COASTAL_ENDPOINT_URL", COASTAL_DEFAULT_ENDPOINT).strip() or COASTAL_DEFAULT_ENDPOINT
+    source_name = "전라남도관광재단_해안가마을 관광자원 정보"
+    max_items = max(1, int(os.getenv("JN_COASTAL_MAX_ITEMS", "120")))
+
+    timeout_seconds = int(os.getenv("JN_API_TIMEOUT_SECONDS", "12"))
+    retry_count = max(1, int(os.getenv("JN_API_RETRY_COUNT", "2")))
+    base_retry_wait = float(os.getenv("JN_API_RETRY_WAIT_SECONDS", "0.4"))
+    rate_limit_wait = float(os.getenv("JN_API_429_WAIT_SECONDS", "1.2"))
+    params = {
+        "serviceKey": jn_service_key,
+        "pageNo": os.getenv("JN_COASTAL_PAGE_NO", str(start_page)),
+        "numOfRows": os.getenv("JN_COASTAL_NUM_ROWS", str(page_size)),
+        "_type": "json",
+    }
+    items = _fetch_open_json_items(
+        endpoint,
+        params,
+        timeout_seconds,
+        retry_count,
+        base_retry_wait,
+        rate_limit_wait,
+        source_tag="COASTAL",
+    )
+    if not items:
+        logger.warning("[COASTAL] empty info list")
+        return []
+
+    rows: list[dict] = []
+    seen_source_ids: set[str] = set()
+    for item in items[:max_items]:
+        normalized = _normalize_coastal_item(item, source_name)
+        if not normalized:
+            continue
+        source_id = str(normalized.get("sourceId", "")).strip()
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        rows.append(normalized)
+
+    logger.info("[COASTAL] normalized items=%d", len(rows))
+    return rows
 
 
 def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[dict]:
@@ -824,6 +1442,18 @@ def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[di
         else:
             logger.warning("[COURSE] required endpoints missing list=%s plan=%s", bool(list_endpoint), bool(plan_endpoint))
 
+    beach_rows = _fetch_beach_regions(jn_service_key, start_page, page_size)
+    merged_rows.extend(beach_rows)
+
+    food_rows = _fetch_food_regions(jn_service_key, start_page, page_size)
+    merged_rows.extend(food_rows)
+
+    tent_rows = _fetch_tent_regions(jn_service_key, start_page, page_size)
+    merged_rows.extend(tent_rows)
+
+    coastal_rows = _fetch_coastal_regions(jn_service_key, start_page, page_size)
+    merged_rows.extend(coastal_rows)
+
     kto_rows = _fetch_kto_regions(kto_service_key, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
     merged_rows.extend(kto_rows)
 
@@ -856,6 +1486,21 @@ def load_regions() -> list[dict]:
             os.getenv("KTO_API_BASE_URL", ""),
             os.getenv("KTO_AREA_CODES", ""),
             os.getenv("KTO_KEYWORDS", ""),
+            os.getenv("JN_BEACH_ENABLE", ""),
+            os.getenv("JN_BEACH_ENDPOINT_URL", ""),
+            os.getenv("JN_BEACH_AREAS", ""),
+            os.getenv("JN_BEACH_MAX_ITEMS", ""),
+            os.getenv("JN_FOOD_ENABLE", ""),
+            os.getenv("JN_FOOD_INFO_ENDPOINT_URL", ""),
+            os.getenv("JN_FOOD_IMG_ENDPOINT_URL", ""),
+            os.getenv("JN_FOOD_MAX_ITEMS", ""),
+            os.getenv("JN_TENT_ENABLE", ""),
+            os.getenv("JN_TENT_INFO_ENDPOINT_URL", ""),
+            os.getenv("JN_TENT_IMG_ENDPOINT_URL", ""),
+            os.getenv("JN_TENT_MAX_ITEMS", ""),
+            os.getenv("JN_COASTAL_ENABLE", ""),
+            os.getenv("JN_COASTAL_ENDPOINT_URL", ""),
+            os.getenv("JN_COASTAL_MAX_ITEMS", ""),
         ]
     )
     cached = _runtime_cache.get("regions")
