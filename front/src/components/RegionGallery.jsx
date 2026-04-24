@@ -7,7 +7,7 @@ export default function RegionGallery({ regions, onSelect, scrappedIds = [], onT
     if (!text) {
       return SUMMARY_FALLBACK;
     }
-    return text.length > 64 ? `${text.slice(0, 64)}...` : text;
+    return text.length > 42 ? `${text.slice(0, 42)}...` : text;
   };
 
   const inferThemeTag = (region) => {
@@ -16,6 +16,25 @@ export default function RegionGallery({ regions, onSelect, scrappedIds = [], onT
     if (/맛집|식당|음식|국밥|고기/.test(text)) return '맛집';
     if (/해변|바다|섬|해수욕/.test(text)) return '해변';
     return '관광명소';
+  };
+
+  const inferRegionTag = (region) => {
+    const regionText = String(region?.region || '').trim();
+    if (regionText) {
+      return regionText;
+    }
+    const provinceText = String(region?.province || '').trim();
+    if (provinceText) {
+      return provinceText;
+    }
+    const address = String(region?.address || '').trim();
+    if (address) {
+      const firstToken = address.split(/\s+/)[0];
+      if (firstToken) {
+        return firstToken;
+      }
+    }
+    return '지역정보';
   };
 
   return (
@@ -64,7 +83,7 @@ export default function RegionGallery({ regions, onSelect, scrappedIds = [], onT
                 <div className="region-overlay-footer">
                   <div className="region-overlay-tags">
                     <span className="region-overlay-tag">🏛 {inferThemeTag(region)}</span>
-                    <span className="region-overlay-tag">광주·전남</span>
+                    <span className="region-overlay-tag">{inferRegionTag(region)}</span>
                   </div>
                   <span className="card-add-btn" aria-hidden="true">
                     +

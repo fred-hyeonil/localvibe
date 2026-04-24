@@ -32,11 +32,11 @@ export default function StartLogin() {
   };
 
   return (
-    <div>
-      <StartNavbar />
+    <div style={styles.page}>
+      <StartNavbar hideDivider />
       <div style={styles.container}>
         <div style={styles.card}>
-          <h2>Log in</h2>
+          <h2 style={styles.title}>Google 로그인</h2>
           <div style={styles.googleWrap}>
             <GoogleLogin
               theme="filled_blue"
@@ -60,20 +60,33 @@ export default function StartLogin() {
 }
 
 const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#ffffff",
+  },
   container: {
     display: "flex",
     justifyContent: "center",
-    marginTop: "100px",
+    marginTop: "120px",
+    padding: "0 16px",
   },
   card: {
-    width: "300px",
-    padding: "40px",
-    borderRadius: "12px",
-    boxShadow: "0 0 10px rgba(0,0,0,0.1)",
+    width: "100%",
+    maxWidth: "360px",
+    padding: "34px 28px",
+    borderRadius: "14px",
+    background: "#ffffff",
+    border: "1px solid #eceff4",
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.08)",
     textAlign: "center",
   },
+  title: {
+    margin: "0 0 14px",
+    fontSize: "24px",
+    lineHeight: 1.25,
+    color: "#111827",
+  },
   googleWrap: {
-    marginTop: "20px",
     display: "flex",
     justifyContent: "center",
   },
