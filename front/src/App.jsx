@@ -5,7 +5,6 @@ import RegionGallery from './components/RegionGallery';
 import RegionModal from './components/RegionModal';
 import { defaultRegions } from './data/defaultRegions';
 import TripPlannerPage from './pages/TripPlannerPage';
-import MyPage from './pages/MyPage';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -80,18 +79,6 @@ export default function App() {
   const [insightRegion, setInsightRegion] = useState(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('gallery'); // "gallery" or "planner"
-  const [myTrips, setMyTrips] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('lv_mytrips') || '[]');
-    } catch {
-      return [];
-    }
-  });
-
-  const saveTrips = trips => {
-    setMyTrips(trips);
-    localStorage.setItem('lv_mytrips', JSON.stringify(trips));
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -219,12 +206,6 @@ export default function App() {
         >
           Trip Planner
         </button>
-        <button
-          className={`app-tab ${activeTab === 'mypage' ? 'active' : ''}`}
-          onClick={() => setActiveTab('mypage')}
-        >
-          My Page
-        </button>
       </div>
 
       {/* Conditional Content */}
@@ -232,25 +213,15 @@ export default function App() {
         <>
           <ChatbotPanel onRecommendFeed={handleRecommendFeed} />
           <RegionGallery
-            regions={displayedRegions}
-            totalRegions={regions}
+            regions={displayedRegions.slice(0, FEED_SIZE)}
             onSelect={region => {
               setSelectedRegion(region);
               setInsightRegion(null);
             }}
-            myTrips={myTrips}
-            onSaveTrips={saveTrips}
           />
         </>
-      ) : activeTab === 'planner' ? (
-        <TripPlannerPage regions={regions} />
       ) : (
-        <MyPage
-          myTrips={myTrips}
-          onSaveTrips={saveTrips}
-          regions={regions}
-          onGoGallery={() => setActiveTab('gallery')}
-        />
+        <TripPlannerPage regions={regions} />
       )}
 
       <footer className="main-footer">
