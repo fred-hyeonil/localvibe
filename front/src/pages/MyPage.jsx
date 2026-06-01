@@ -1,293 +1,224 @@
 import { useState } from 'react';
 
-const FALLBACK_IMG =
-  'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=400&q=60';
+const CARD_IMAGE_FALLBACK = "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80";
 
-function getScraps() {
-  try {
-    return JSON.parse(localStorage.getItem('lv_scraps') || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveScraps(items) {
-  localStorage.setItem('lv_scraps', JSON.stringify(items));
-}
-
-function showToast(message) {
-  const node = document.createElement('div');
-  node.className = 'add-toast';
-  node.textContent = message;
-  document.body.appendChild(node);
-  setTimeout(() => node.remove(), 2200);
-}
-
-export default function MyPage({ myTrips, onSaveTrips, regions, onGoGallery }) {
-  const [tab, setTab] = useState('trips');
-  const [showNewTrip, setShowNewTrip] = useState(false);
-  const [newTripName, setNewTripName] = useState('');
-  const [newTripDate, setNewTripDate] = useState('');
+export default function MyPage({ scrappedRegions = [], myTrips = [], setMyTrips, onToggleScrap, onOpenRegion, regions = [] }) {
+  const [tab, setTab] = useState('scraps');
   const [selectedTrip, setSelectedTrip] = useState(null);
-  const [scraps, setScraps] = useState(getScraps);
+  const [newTripName, setNewTripName] = useState('');
+  const [showNewTripForm, setShowNewTripForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const scrappedRegions = regions.filter(region => scraps.includes(region.id));
-
-  const handleUnscrap = regionId => {
-    const next = scraps.filter(id => id !== regionId);
-    saveScraps(next);
-    setScraps(next);
-    showToast('스크랩을 취소했어요');
-  };
-
-  const handleCreateTrip = () => {
-    if (!newTripName.trim()) return;
-    const trip = {
-      id: Date.now(),
-      name: newTripName.trim(),
-      date: newTripDate || '날짜 미정',
-      places: [],
-      createdAt: new Date().toLocaleDateString('ko-KR'),
-    };
-    onSaveTrips([...myTrips, trip]);
+  const handleCreateTrip = (e) => {
+    e.preventDefault();
+    const name = newTripName.trim();
+    if (!name) return;
+    const newTrip = { id: Date.now(), name, createdAt: new Date().toISOString(), places: [] };
+    const next = [...myTrips, newTrip];
+    setMyTrips(next);
     setNewTripName('');
-    setNewTripDate('');
-    setShowNewTrip(false);
+    setShowNewTripForm(false);
+    setSelectedTrip(newTrip.id);
   };
 
-  const handleDeleteTrip = id => {
+  const handleDeleteTrip = (tripId) => {
     if (!window.confirm('이 여행을 삭제할까요?')) return;
-    onSaveTrips(myTrips.filter(item => item.id !== id));
-    if (selectedTrip?.id === id) setSelectedTrip(null);
+    const next = myTrips.filter(t => t.id !== tripId);
+    setMyTrips(next);
+    if (selectedTrip === tripId) setSelectedTrip(null);
   };
 
-  const handleRemovePlace = (tripId, placeId) => {
-    const updated = myTrips.map(item =>
-      item.id === tripId
-        ? { ...item, places: item.places.filter(place => place.id !== placeId) }
-        : item,
-    );
-    onSaveTrips(updated);
-    if (selectedTrip?.id === tripId) {
-      setSelectedTrip(updated.find(item => item.id === tripId));
-    }
+  const handleRemovePlaceFromTrip = (tripId, placeId) => {
+    const next = myTrips.map(t => t.id === tripId ? { ...t, places: t.places.filter(p => p.id !== placeId) } : t);
+    setMyTrips(next);
   };
+
+  const handleAddPlaceToTrip = (tripId, place) => {
+    const trip = myTrips.find(t => t.id === tripId);
+    if (!trip) return;
+    if (trip.places.some(p => p.id === place.id)) { window.alert('이미 담긴 장소예요!'); return; }
+    const next = myTrips.map(t => t.id === tripId ? { ...t, places: [...t.places, place] } : t);
+    setMyTrips(next);
+  };
+
+  const currentTrip = myTrips.find(t => t.id === selectedTrip);
+  const filteredRegions = regions.filter(r => r.name?.includes(searchQuery) || r.region?.includes(searchQuery)).slice(0, 12);
 
   return (
-    <div className="mypage-root">
-      <div className="mypage-profile">
-        <div className="mypage-avatar">나</div>
-        <div className="mypage-profile-info">
-          <p className="mypage-username">여행자</p>
-          <p className="mypage-usersub">광주·전남 로컬 탐험가</p>
-          <div className="mypage-stats">
-            <span>
-              <strong>{myTrips.length}</strong> 여행
-            </span>
-            <span>
-              <strong>{myTrips.reduce((sum, trip) => sum + trip.places.length, 0)}</strong>{' '}
-              담은 장소
-            </span>
-            <span>
-              <strong>{scrappedRegions.length}</strong> 스크랩
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mypage-tabs">
-        <button
-          className={`mypage-tab ${tab === 'trips' ? 'active' : ''}`}
-          onClick={() => setTab('trips')}
-        >
-          나의 여행 플랜
+    <section style={{ width: '100%' }}>
+      {/* 탭 */}
+      <div className="app-tabs" style={{ marginTop: 16 }}>
+        <button className={`app-tab${tab === 'scraps' ? ' active' : ''}`} onClick={() => setTab('scraps')} type="button">
+          ♥ 스크랩한 장소 ({scrappedRegions.length})
         </button>
-        <button
-          className={`mypage-tab ${tab === 'scraps' ? 'active' : ''}`}
-          onClick={() => setTab('scraps')}
-        >
-          스크랩한 장소
+        <button className={`app-tab${tab === 'trips' ? ' active' : ''}`} onClick={() => setTab('trips')} type="button">
+          ✈ 내 여행 일정 ({myTrips.length})
         </button>
       </div>
 
-      {tab === 'trips' && (
-        <div className="mypage-content">
-          {selectedTrip ? (
-            <div className="trip-detail">
-              <button className="trip-detail-back" onClick={() => setSelectedTrip(null)}>
-                {'<'} 목록으로
-              </button>
-              <div className="trip-detail-header">
-                <div>
-                  <h2 className="trip-detail-name">{selectedTrip.name}</h2>
-                  <p className="trip-detail-date">{selectedTrip.date}</p>
-                </div>
-                <button
-                  className="trip-delete-btn"
-                  onClick={() => handleDeleteTrip(selectedTrip.id)}
-                >
-                  여행 삭제
-                </button>
-              </div>
-
-              {selectedTrip.places.length === 0 ? (
-                <div className="trip-empty">
-                  <p>아직 담은 장소가 없어요.</p>
-                  <button className="trip-go-gallery" onClick={onGoGallery}>
-                    갤러리로 이동
-                  </button>
-                </div>
-              ) : (
-                <div className="trip-places">
-                  {selectedTrip.places.map((place, index) => (
-                    <div key={place.id} className="trip-place-item">
-                      <div className="trip-place-num">{index + 1}</div>
-                      <img
-                        src={place.imageUrl || FALLBACK_IMG}
-                        alt={place.name}
-                        className="trip-place-img"
-                        onError={event => {
-                          event.currentTarget.src = FALLBACK_IMG;
-                        }}
-                      />
-                      <div className="trip-place-info">
-                        <p className="trip-place-name">{place.name}</p>
-                        {!!place.summary && (
-                          <p className="trip-place-summary">{place.summary}</p>
-                        )}
-                      </div>
-                      <button
-                        className="trip-place-remove"
-                        onClick={() => handleRemovePlace(selectedTrip.id, place.id)}
-                      >
-                        x
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="mypage-list-header">
-                <h2 className="mypage-section-title">나의 여행 플랜</h2>
-                <button className="new-trip-btn" onClick={() => setShowNewTrip(true)}>
-                  + 새 여행 만들기
-                </button>
-              </div>
-
-              {showNewTrip && (
-                <div className="new-trip-form">
-                  <input
-                    className="new-trip-input"
-                    placeholder="여행 이름"
-                    value={newTripName}
-                    onChange={event => setNewTripName(event.target.value)}
-                    onKeyDown={event => event.key === 'Enter' && handleCreateTrip()}
-                  />
-                  <input
-                    className="new-trip-input"
-                    placeholder="날짜"
-                    value={newTripDate}
-                    onChange={event => setNewTripDate(event.target.value)}
-                  />
-                  <div className="new-trip-actions">
-                    <button className="new-trip-confirm" onClick={handleCreateTrip}>
-                      만들기
-                    </button>
-                    <button className="new-trip-cancel" onClick={() => setShowNewTrip(false)}>
-                      취소
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {myTrips.length === 0 ? (
-                <div className="trip-empty">
-                  <p>아직 만든 여행이 없어요.</p>
-                </div>
-              ) : (
-                <div className="trip-list">
-                  {myTrips.map(trip => (
-                    <div
-                      key={trip.id}
-                      className="trip-card"
-                      onClick={() => setSelectedTrip(trip)}
-                    >
-                      <div className="trip-card-thumbs">
-                        {trip.places.slice(0, 4).map(place => (
-                          <img
-                            key={place.id}
-                            src={place.imageUrl || FALLBACK_IMG}
-                            alt={place.name}
-                            onError={event => {
-                              event.currentTarget.src = FALLBACK_IMG;
-                            }}
-                          />
-                        ))}
-                        {trip.places.length === 0 && (
-                          <div className="trip-card-empty-thumb">📍</div>
-                        )}
-                      </div>
-                      <div className="trip-card-info">
-                        <p className="trip-card-name">{trip.name}</p>
-                        <p className="trip-card-date">{trip.date}</p>
-                        <p className="trip-card-count">{trip.places.length}개 장소</p>
-                      </div>
-                      <button
-                        className="trip-card-delete"
-                        onClick={event => {
-                          event.stopPropagation();
-                          handleDeleteTrip(trip.id);
-                        }}
-                      >
-                        x
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
+      {/* ── 스크랩 탭 ── */}
       {tab === 'scraps' && (
-        <div className="mypage-content">
-          <h2 className="mypage-section-title">스크랩한 장소</h2>
+        <>
           {scrappedRegions.length === 0 ? (
-            <div className="trip-empty">
-              <p>스크랩한 장소가 없어요.</p>
+            <div className="mypage-empty">
+              <p style={{ fontSize: 32, margin: '0 0 12px' }}>♡</p>
+              <p style={{ margin: 0 }}>아직 스크랩한 장소가 없어요.</p>
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: '#aaa' }}>갤러리에서 마음에 드는 장소를 하트로 저장해보세요.</p>
             </div>
           ) : (
-            <div className="scrap-grid">
+            <div className="region-grid" style={{ marginTop: 20 }}>
               {scrappedRegions.map(region => (
-                <div key={region.id} className="scrap-card">
-                  <div className="scrap-img-wrap">
-                    <img
-                      src={region.imageUrl || FALLBACK_IMG}
-                      alt={region.name}
-                      className="scrap-img"
-                    />
-                    <button
-                      className="scrap-heart-btn"
-                      onClick={() => handleUnscrap(region.id)}
-                    >
-                      ❤
-                    </button>
+                <article key={region.id} className="region-card">
+                  <div className="region-preview" role="button" tabIndex={0} onClick={() => onOpenRegion?.(region)} onKeyDown={e => { if (e.key === 'Enter') onOpenRegion?.(region); }}>
+                    <button type="button" className="card-heart-btn active" onClick={e => { e.stopPropagation(); onToggleScrap?.(region.id); }} aria-label="스크랩 해제">♥</button>
+                    <img src={region.imageUrl || CARD_IMAGE_FALLBACK} alt={region.name} className="region-image" onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = CARD_IMAGE_FALLBACK; }} />
+                    <div className="region-overlay">
+                      <span className="region-overlay-name">{region.name}</span>
+                      <p className="region-overlay-summary">{String(region.summary || '').trim() || '정보 없음'}</p>
+                    </div>
                   </div>
-                  <div className="scrap-info">
-                    <p className="scrap-name">{region.name}</p>
-                    {!!region.summary && (
-                      <p className="scrap-summary">{region.summary}</p>
-                    )}
-                  </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
+        </>
+      )}
+
+      {/* ── 여행 일정 탭 ── */}
+      {tab === 'trips' && (
+        <div style={{ marginTop: 20 }}>
+          {/* 여행 목록 + 새 여행 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111' }}>내 여행 목록</h2>
+            <button type="button" className="mypage-create-btn" onClick={() => setShowNewTripForm(v => !v)}>+ 새 여행 만들기</button>
+          </div>
+
+          {showNewTripForm && (
+            <form onSubmit={handleCreateTrip} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input
+                type="text"
+                value={newTripName}
+                onChange={e => setNewTripName(e.target.value)}
+                placeholder="여행 이름 입력..."
+                style={{ flex: 1, height: 40, border: '1px solid #e5e5e5', borderRadius: 8, padding: '0 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+                autoFocus
+              />
+              <button type="submit" style={{ height: 40, padding: '0 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>만들기</button>
+              <button type="button" onClick={() => setShowNewTripForm(false)} style={{ height: 40, padding: '0 12px', background: 'none', color: '#888', border: '1px solid #e5e5e5', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>취소</button>
+            </form>
+          )}
+
+          {myTrips.length === 0 ? (
+            <div className="mypage-empty">
+              <p style={{ fontSize: 32, margin: '0 0 12px' }}>✈</p>
+              <p style={{ margin: 0 }}>아직 만든 여행이 없어요.</p>
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: '#aaa' }}>새 여행을 만들고 원하는 장소를 추가해보세요.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: selectedTrip ? '240px 1fr' : '1fr', gap: 16 }}>
+              {/* 여행 목록 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {myTrips.map(trip => (
+                  <div
+                    key={trip.id}
+                    className={`mypage-trip-card${selectedTrip === trip.id ? ' selected' : ''}`}
+                    onClick={() => setSelectedTrip(selectedTrip === trip.id ? null : trip.id)}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trip.name}</div>
+                      <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                        {trip.places.length}개 장소 · {new Date(trip.createdAt).toLocaleDateString('ko-KR')}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); handleDeleteTrip(trip.id); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 14, padding: 4, flexShrink: 0 }}
+                      title="삭제"
+                    >🗑</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* 선택된 여행 상세 */}
+              {currentTrip && (
+                <div style={{ border: '1px solid #e5e5e5', borderRadius: 12, padding: 20, background: '#fff' }}>
+                  <h3 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 800, color: '#111' }}>{currentTrip.name}</h3>
+
+                  {/* 담긴 장소 */}
+                  {currentTrip.places.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: '#aaa', fontSize: 14 }}>
+                      <p style={{ margin: '0 0 4px' }}>아직 담긴 장소가 없어요.</p>
+                      <p style={{ margin: 0, fontSize: 12 }}>아래 검색으로 장소를 추가해보세요.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                      {currentTrip.places.map((place, idx) => (
+                        <div key={place.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#f8f8f8', borderRadius: 8, border: '1px solid #eee' }}>
+                          <span style={{ fontSize: 12, color: '#aaa', fontWeight: 700, minWidth: 20 }}>{idx + 1}</span>
+                          <img src={place.imageUrl || CARD_IMAGE_FALLBACK} alt={place.name} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} onError={e => { e.currentTarget.src = CARD_IMAGE_FALLBACK; }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.name}</div>
+                            <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.region || place.address || ''}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onOpenRegion?.(place)}
+                            style={{ background: 'none', border: '1px solid #e5e5e5', borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer', color: '#555', fontFamily: 'inherit', flexShrink: 0 }}
+                          >보기</button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePlaceFromTrip(currentTrip.id, place.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 14, padding: 2, flexShrink: 0 }}
+                          >✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 장소 추가 검색 */}
+                  <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+                    <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#555' }}>장소 추가</h4>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="장소 이름 또는 지역 검색..."
+                      style={{ width: '100%', height: 38, border: '1px solid #e5e5e5', borderRadius: 8, padding: '0 12px', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, maxHeight: 240, overflowY: 'auto' }}>
+                      {filteredRegions.map(place => {
+                        const alreadyIn = currentTrip.places.some(p => p.id === place.id);
+                        return (
+                          <div key={place.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 7, border: '1px solid #eee', background: '#fafafa' }}>
+                            <img src={place.imageUrl || CARD_IMAGE_FALLBACK} alt={place.name} style={{ width: 36, height: 36, borderRadius: 5, objectFit: 'cover', flexShrink: 0 }} onError={e => { e.currentTarget.src = CARD_IMAGE_FALLBACK; }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.name}</div>
+                              <div style={{ fontSize: 11, color: '#888' }}>{place.region || ''}</div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={alreadyIn}
+                              onClick={() => handleAddPlaceToTrip(currentTrip.id, place)}
+                              style={{
+                                padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                                background: alreadyIn ? '#f0f0f0' : '#111',
+                                color: alreadyIn ? '#aaa' : '#fff',
+                                border: 'none', borderRadius: 6, cursor: alreadyIn ? 'default' : 'pointer',
+                                fontFamily: 'inherit', flexShrink: 0,
+                              }}
+                            >{alreadyIn ? '추가됨' : '+ 추가'}</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -1,181 +1,146 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
+import ComparisonTable from './ui/ComparisonTable';
+// import ImageGallery from './ui/ImageGallery';
+// import MultiMarkerMap from './ui/MultiMarkerMap';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const ASSISTANT_MESSAGE_DELAY = 0.3;
 const LOADING_INDICATOR_DELAY = 0.7;
 
-function getMaxLocationsByDuration(days) {
-  return Math.max(1, days * 5);
-}
-
-function parseTripDuration(text) {
-  // "추가" 또는 "더" 키워드가 있으면 기간 증감 요청이므로 null 반환
-  if (/추가|더/.test(text)) {
-    return null;
+/** 비교·갤러리·지도 + '방금/저 공원' 등 맥락 후속 */
+function isTripVisualRequest(text) {
+  const t = String(text || '');
+  if (/비교|vs\b|VS\b|차이|대비/.test(t)) {
+    return true;
   }
-
-  const nightsDaysMatch = text.match(/(\d+)\s*박\s*(\d+)\s*일/);
-  if (nightsDaysMatch) {
-    const nights = Number(nightsDaysMatch[1]);
-    const days = Number(nightsDaysMatch[2]);
-    if (Number.isFinite(nights) && Number.isFinite(days) && days >= 1) {
-      return { nights, days, maxLocations: getMaxLocationsByDuration(days) };
-    }
-  }
-
-  const nightsOnlyMatch = text.match(/(\d+)\s*박/);
-  if (nightsOnlyMatch) {
-    const nights = Number(nightsOnlyMatch[1]);
-    const days = nights + 1;
-    if (Number.isFinite(nights) && days >= 1) {
-      return { nights, days, maxLocations: getMaxLocationsByDuration(days) };
-    }
-  }
-
-  const daysOnlyMatch = text.match(/(\d+)\s*일/);
-  if (daysOnlyMatch) {
-    const days = Number(daysOnlyMatch[1]);
-    const nights = Math.max(0, days - 1);
-    if (Number.isFinite(days) && days >= 1) {
-      return { nights, days, maxLocations: getMaxLocationsByDuration(days) };
-    }
-  }
-
-  return null;
-}
-
-function isDurationOnlyMessage(text) {
-  return /^\s*\d+\s*(박\s*\d+\s*일|박|일)\s*$/.test(text);
-}
-
-function parseDurationIncrement(text) {
-  if (/하루\s*(더|추가)/.test(text)) {
-    return 1;
-  }
-
-  const numericDayMatch = text.match(/(\d+)\s*일\s*(더|추가)/);
-  if (numericDayMatch) {
-    const delta = Number(numericDayMatch[1]);
-    if (Number.isFinite(delta) && delta > 0) {
-      return delta;
-    }
-  }
-
-  return 0;
-}
-
-function applyDurationIncrement(currentDuration, incrementDays) {
+  // 갤러리·지도 기능 비활성화
+  // if (/사진|이미지|보고\s*싶|갤러리/.test(t)) return true;
+  // if (/(지도|마커|맵)/.test(t) && /(보여|표시|띄워|알려|찍|볼|줄래|까|펼쳐)/.test(t)) return true;
+  // if (/(위치|어디)/.test(t) && /(지도|맵|보여|알려|찍|볼|줄래|까)/.test(t)) return true;
   if (
-    !currentDuration ||
-    !Number.isFinite(incrementDays) ||
-    incrementDays <= 0
+    /(저|그거|그\s|방금|아까|직전|위에|아까\s*말한|방금\s*보여|방금\s*추천)/.test(t) &&
+    /(비교|vs)/.test(t)
   ) {
-    return null;
+    return true;
   }
+  return false;
+}
 
-  const nextDays = Math.max(1, Number(currentDuration.days) + incrementDays);
-  const nextNights = Math.max(0, nextDays - 1);
+function buildVisualPayload(message, currentLocations, chatHistory) {
+  const recentChat = (chatHistory || [])
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .slice(-14)
+    .map(m => ({
+      role: m.role,
+      text: String(m.text || '').slice(0, 2000),
+    }));
+
   return {
-    nights: nextNights,
-    days: nextDays,
-    maxLocations: getMaxLocationsByDuration(nextDays),
+    message,
+    currentLocationNames: currentLocations.map(l => l.name),
+    locations: currentLocations.map(l => ({
+      id: l.id,
+      name: l.name,
+      latitude: l.latitude ?? null,
+      longitude: l.longitude ?? null,
+      summary: (l.summary || '').slice(0, 200),
+    })),
+    recentChat,
   };
 }
 
-function parseRequestedAddCount(text) {
-  const match = text.match(/(\d+)\s*개\s*(더\s*)?(추가|추천)/);
-  if (!match) {
-    return null;
+async function callVisualAction(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/visual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error('visual api error');
   }
-  const count = Number(match[1]);
-  if (!Number.isFinite(count) || count <= 0) {
-    return null;
-  }
-  return count;
+  return response.json();
 }
 
-function normalizeForMatch(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/\s+/g, '');
+const HELP_TEXT = `사용 가능한 기능을 알려드릴게요!
+
+장소 추천 & 일정 관리
+• "[지역] [테마] 추천해줘" → 로드맵에 장소 추가
+• "[N]일" / "[N]박 [N]일" → 여행 기간 설정
+• "[N]일 더 추가해줘" → 기간 연장
+• "[장소명] 제외해줘" → 장소 삭제
+• "[장소명] 말고 다른 곳으로 바꿔줘" → 장소 교체
+• "코스 다시 짜줘" / "장소 교체해서 보여줘" → 말한 조건으로 로드맵 전체 새로 구성
+
+시각화
+• "[장소A] vs [장소B] 비교해줘" → 두 장소 비교 카드 팝업`;
+
+const HELP_PATTERNS = [
+  /도움말|도움|헬프|help/i,
+  /뭐\s*(할|해|도와|가능)/,
+  /기능\s*(뭐|있|알려|목록)/,
+  /어떻게\s*(써|사용|활용)/,
+  /사용법|설명해/,
+];
+
+function isHelpIntent(text) {
+  return HELP_PATTERNS.some(p => p.test(text));
 }
 
-function parseReplaceIntent(text) {
-  // "X말고 다른 걸로 바꿔줘", "X를 교체해줘", "X 다시 추천해줘" 등 감지
-  const patterns = [
-    /(.*?)\s*말고\s*(?:다른 )?(?:걸로 )?(?:바꿔|교체|변경)(?:\s*해)?(?:줘|주세요|달라|주라)?/,
-    /(\S+?)\s*(?:을|를)\s*(?:다른 )?(?:걸로 )?(?:바꿔|교체|변경)(?:\s*해)?(?:줘|주세요|달라|주라)?/,
-    /(\S+?)\s*(?:을|를)\s*다시\s*(?:추천|추천해)(?:\s*해)?(?:줘|주세요|달라|주라)?/,
-    /(\S+?)\s*(?:을|를)\s*(?:바꿔|교체|변경)(?:\s*해)?(?:줘|주세요|달라|주라)?/,
-    /(\S+?)\s*(?:다른 )?(?:걸로 )?(?:바꿔|교체|변경)(?:\s*해)?(?:줘|주세요|달라|주라)/,
-  ];
+const ACTION_COMPONENT_MAP = {
+  comparePlaces: data => <ComparisonTable items={data?.items ?? []} />,
+  // showImageGallery: data => <ImageGallery images={data?.images ?? []} />,
+  // showMap: data => <MultiMarkerMap locations={data?.locations ?? []} />,
+};
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const target = String(match[1] || '').trim();
-      if (target) {
-        return target;
-      }
-    }
-  }
-  return null;
-}
-
-function hasRemoveIntent(text) {
-  return /제외|삭제|제거|없애|빼/.test(text);
-}
-
-function parseRemoveIntent(text) {
-  // "X 제외해줘", "X 삭제해줘", "X 빼줘", "X 없애줘" 등 감지
-  const patterns = [
-    /(.*?)\s*(?:을|를)?\s*(?:제외|삭제|제거|빼|없애)(?:\s*해)?(?:줘|주세요|주라|줘요)?/,
-    /(\S+?)\s*(?:을|를)\s*(?:제외|삭제|제거|빼|없애)(?:\s*해)?(?:줘|주세요|주라|줘요)?/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (!match) {
-      continue;
-    }
-    const target = String(match[1] || '').trim();
-    if (target) {
-      return target;
-    }
-  }
-
-  return null;
-}
+const ACTION_LABEL_MAP = {
+  comparePlaces: '비교 보기',
+  // showImageGallery: '이미지 갤러리 보기',
+  // showMap: '지도에서 보기',
+};
 
 /**
  * TripChatPanel Component
  * Specialized chat for Trip Planner - adds/removes locations from roadmap
- * Different from ChatbotPanel which is for gallery recommendations
  *
  * Props:
  *   - onTripLocationsChange: Function called with recommended region IDs
  *   - currentLocations: Array of currently added locations (for context)
  */
-export default function TripChatPanel({
+const INITIAL_MESSAGE = {
+  role: 'assistant',
+  text: '어떤 여행을 계획하고 계신가요? 예: "서울 1일 카페 여행", "부산 2박 3일"',
+};
+
+function TripChatPanelInner({
   onTripLocationsChange,
+  onTripLocationsReplaceAll,
   onReplaceLocation,
+  onRemoveLocation,
   resolveRegionName,
   currentLocations = [],
+  onResetRef,
 }) {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      text: '🗺️ 먼저 여행 기간을 알려주세요! 예: 2박 3일, 3일, 1박',
-    },
-  ]);
+  const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [lastLocationCount, setLastLocationCount] = useState(0);
   const [tripDuration, setTripDuration] = useState(null);
+  const [visualPopup, setVisualPopup] = useState(null);
   const messagesContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (onResetRef) {
+      onResetRef.current = () => {
+        setMessages([INITIAL_MESSAGE]);
+        setTripDuration(null);
+        setLastLocationCount(0);
+        setVisualPopup(null);
+      };
+    }
+  }, [onResetRef]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -197,13 +162,7 @@ export default function TripChatPanel({
       // Locations added
       const addedCount = currentLocations.length - lastLocationCount;
       const summaryText =
-        addedCount === 1
-          ? `✅ 장소가 추가되었습니다!\n\n📍 현재 로드맵:\n${currentLocations
-              .map((loc, i) => `${i + 1}. ${loc.name}`)
-              .join('\n')}`
-          : `✅ ${addedCount}개의 장소가 추가되었습니다!\n\n📍 현재 로드맵:\n${currentLocations
-              .map((loc, i) => `${i + 1}. ${loc.name}`)
-              .join('\n')}`;
+        addedCount === 1 ? '장소를 추가했어요.' : `${addedCount}개 장소를 추가했어요.`;
 
       setMessages(prev => [
         ...prev,
@@ -217,10 +176,8 @@ export default function TripChatPanel({
       const removedCount = lastLocationCount - currentLocations.length;
       const summaryText =
         currentLocations.length === 0
-          ? '🗑️ 모든 장소가 제거되었습니다.'
-          : `🗑️ ${removedCount}개의 장소가 제거되었습니다!\n\n📍 남은 로드맵:\n${currentLocations
-              .map((loc, i) => `${i + 1}. ${loc.name}`)
-              .join('\n')}`;
+          ? '모든 장소를 제거했어요.'
+          : `${removedCount}개 장소를 제거했어요.`;
 
       setMessages(prev => [
         ...prev,
@@ -246,285 +203,149 @@ export default function TripChatPanel({
       setInput('');
     });
 
-    const removeIntentName = parseRemoveIntent(trimmed);
-    if (hasRemoveIntent(trimmed)) {
-      if (currentLocations.length === 0) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: '현재 로드맵이 비어 있어 제거할 장소가 없습니다. 먼저 장소를 추가해 주세요.',
-          },
-        ]);
-        return;
-      }
-
-      if (removeIntentName) {
-        const normalizedTarget = normalizeForMatch(removeIntentName);
-        const matchedLocation = currentLocations.find(loc =>
-          normalizeForMatch(loc.name).includes(normalizedTarget),
-        );
-
-        if (matchedLocation) {
-          setMessages(prev => [
-            ...prev,
-            {
-              role: 'assistant',
-              text: `${matchedLocation.name}은(는) 왼쪽 로드맵의 점(노드)에 마우스를 올리면 나오는 제거 버튼으로 바로 뺄 수 있어요.`,
-            },
-          ]);
-          return;
-        }
-      }
-
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          text: '제거는 왼쪽 로드맵 노드에 마우스를 올리면 나타나는 제거 버튼으로 할 수 있어요.',
-        },
-      ]);
+    // 도움말은 로컬에서 즉시 처리
+    if (isHelpIntent(trimmed)) {
+      setMessages(prev => [...prev, { role: 'assistant', text: HELP_TEXT }]);
       return;
     }
 
-    const parsedDuration = parseTripDuration(trimmed);
-    const incrementDays = parseDurationIncrement(trimmed);
-    const incrementedDuration = applyDurationIncrement(
-      tripDuration,
-      incrementDays,
-    );
-    const resolvedDuration = parsedDuration || incrementedDuration;
-    const shouldCaptureDuration = Boolean(resolvedDuration);
-
-    if (!tripDuration && !resolvedDuration) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          text: '일정을 먼저 맞춰볼게요. 몇 박 몇 일 여행인지 알려주세요! 예: 2박 3일',
-        },
-      ]);
+    // 시각화 요청은 별도 API 사용
+    const chatHistoryForVisual = [...messages, { role: 'user', text: trimmed }];
+    if (isTripVisualRequest(trimmed)) {
+      setIsLoading(true);
+      try {
+        const payload = buildVisualPayload(trimmed, currentLocations, chatHistoryForVisual);
+        const data = await callVisualAction(payload);
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: data.answer ?? '',
+            componentType: data.componentType ?? null,
+            uiData: data.uiData ?? null,
+          },
+        ]);
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', text: '시각화 요청 처리 중 오류가 발생했습니다.' }]);
+      } finally {
+        setIsLoading(false);
+      }
       return;
     }
 
-    if (shouldCaptureDuration) {
-      setTripDuration(resolvedDuration);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          text:
-            incrementedDuration && !parsedDuration
-              ? `일정을 업데이트했어요! ${resolvedDuration.nights}박 ${resolvedDuration.days}일 기준으로 최대 ${resolvedDuration.maxLocations}개 장소까지 추천해드릴게요.`
-              : `좋아요! ${resolvedDuration.nights}박 ${resolvedDuration.days}일 기준으로 최대 ${resolvedDuration.maxLocations}개 장소까지 추천해드릴게요. 이제 가고 싶은 지역이나 테마를 알려주세요.`,
-        },
-      ]);
-
-      if (isDurationOnlyMessage(trimmed)) {
-        return;
-      }
-    }
-
-    const activeDuration = shouldCaptureDuration
-      ? resolvedDuration
-      : tripDuration;
-    const requestedAddCount = parseRequestedAddCount(trimmed);
-    const replaceLocationName = parseReplaceIntent(trimmed);
-
-    // 교체 요청 처리
-    if (replaceLocationName) {
-      const normalizedTarget = normalizeForMatch(replaceLocationName);
-      const matchedLocation = currentLocations.find(loc =>
-        normalizeForMatch(loc.name).includes(normalizedTarget),
-      );
-
-      if (matchedLocation) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: `${matchedLocation.name}을 다른 장소로 교체해드릴게요!`,
-          },
-        ]);
-
-        setIsLoading(true);
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/chat/trip`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: trimmed,
-              tripDuration: activeDuration
-                ? {
-                    nights: activeDuration.nights,
-                    days: activeDuration.days,
-                  }
-                : null,
-              currentLocationIds: currentLocations.map(loc => loc.id),
-              excludeLocationId: matchedLocation.id,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error('chat api error');
-          }
-
-          const data = await response.json();
-
-          if (
-            Array.isArray(data?.recommendedRegionIds) &&
-            data.recommendedRegionIds.length > 0
-          ) {
-            const newLocationId = data.recommendedRegionIds[0];
-            if (newLocationId !== matchedLocation.id) {
-              onReplaceLocation?.(matchedLocation.id, newLocationId);
-              const newLocationName = resolveRegionName?.(newLocationId);
-              setMessages(prev => [
-                ...prev,
-                {
-                  role: 'assistant',
-                  text: newLocationName
-                    ? `${matchedLocation.name}을(를) ${newLocationName}(으)로 교체했어요.`
-                    : `${matchedLocation.name}을(를) 다른 장소로 교체했어요.`,
-                },
-              ]);
-            } else {
-              setMessages(prev => [
-                ...prev,
-                {
-                  role: 'assistant',
-                  text: '같은 장소가 다시 추천되어 교체하지 못했어요. 지역이나 테마를 조금 더 알려주세요.',
-                },
-              ]);
-            }
-          } else {
-            setMessages(prev => [
-              ...prev,
-              {
-                role: 'assistant',
-                text: '대체할 장소를 찾지 못했어요. 지역이나 테마를 조금 더 알려주시면 다시 교체해볼게요.',
-              },
-            ]);
-          }
-        } catch (error) {
-          console.error('Chat error:', error);
-          setMessages(prev => [
-            ...prev,
-            {
-              role: 'assistant',
-              text: '교체 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
-            },
-          ]);
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      } else {
-        const currentNames = currentLocations.map(loc => loc.name).join(', ');
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: `"${replaceLocationName}"을 찾지 못했어요. 현재 로드맵: ${currentNames || '비어 있음'}`,
-          },
-        ]);
-        return;
-      }
-    }
-
+    // 모든 의도 판단을 백엔드 AI에 위임
     setIsLoading(true);
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat/trip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: trimmed,
-          tripDuration: activeDuration
-            ? {
-                nights: activeDuration.nights,
-                days: activeDuration.days,
-              }
+          tripDuration: tripDuration
+            ? { nights: tripDuration.nights, days: tripDuration.days }
             : null,
           currentLocationIds: currentLocations.map(loc => loc.id),
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('chat api error');
-      }
-
+      if (!response.ok) throw new Error('chat api error');
       const data = await response.json();
 
-      // Handle recommended region IDs - these get added to the roadmap
-      if (
-        Array.isArray(data?.recommendedRegionIds) &&
-        data.recommendedRegionIds.length > 0
-      ) {
+      // 기간 감지 시 상태 업데이트
+      if (data?.detectedDuration) {
+        setTripDuration(data.detectedDuration);
+      }
+
+      const activeDuration = data?.detectedDuration || tripDuration;
+      const action = data?.detectedAction;
+
+      // unsupported: 지원하지 않는 요청
+      if (action === 'unsupported') {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', text: String(data?.answer || '').trim() },
+        ]);
+        return;
+      }
+
+      // replan: 전체 교체
+      if (action === 'replan') {
+        if (Array.isArray(data?.recommendedRegionIds) && data.recommendedRegionIds.length > 0) {
+          const cap = activeDuration?.maxLocations ?? data.recommendedRegionIds.length;
+          onTripLocationsReplaceAll?.(data.recommendedRegionIds.slice(0, cap));
+          setMessages(prev => [
+            ...prev,
+            { role: 'assistant', text: String(data?.answer || '').trim() || '일정을 새로 구성했어요.' },
+          ]);
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', text: String(data?.answer || '').trim() || '새 일정을 만들지 못했어요. 다시 시도해 주세요.' }]);
+        }
+        return;
+      }
+
+      // remove: 장소 삭제 (대체 없음)
+      if (action === 'remove') {
+        const targetId = data?.excludedLocationId;
+        const currentRoadmapIds = new Set(currentLocations.map(loc => loc.id));
+        if (!targetId || !currentRoadmapIds.has(targetId)) {
+          setMessages(prev => [...prev, { role: 'assistant', text: '현재 일정에 없는 장소예요. 로드맵에 있는 장소 이름을 말씀해 주세요.' }]);
+        } else {
+          onRemoveLocation?.(targetId);
+        }
+        return;
+      }
+
+      // replace: 장소 교체
+      if (action === 'replace') {
+        if (!data?.excludedLocationId) {
+          setMessages(prev => [...prev, { role: 'assistant', text: '현재 일정에 없는 장소예요. 로드맵에 있는 장소 이름을 말씀해 주세요.' }]);
+          return;
+        }
+        const oldId = data.excludedLocationId;
+        const newId = data?.recommendedRegionIds?.[0];
+        const currentRoadmapIds = new Set(currentLocations.map(loc => loc.id));
+        if (!currentRoadmapIds.has(oldId)) {
+          setMessages(prev => [...prev, { role: 'assistant', text: '현재 일정에 없는 장소예요. 로드맵에 있는 장소 이름을 말씀해 주세요.' }]);
+        } else if (newId && newId !== oldId) {
+          onReplaceLocation?.(oldId, newId);
+          setMessages(prev => [...prev, { role: 'assistant', text: '장소를 교체했어요.' }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', text: '대체할 장소를 찾지 못했어요. 다시 시도해 주세요.' }]);
+        }
+        return;
+      }
+
+      // recommend / add_preference: 장소 추가
+      if (Array.isArray(data?.recommendedRegionIds) && data.recommendedRegionIds.length > 0) {
         const maxLocations = activeDuration?.maxLocations;
         const currentLocationIds = new Set(currentLocations.map(loc => loc.id));
+        const newIds = data.recommendedRegionIds.filter(id => !currentLocationIds.has(id));
         const remainingSlots = Number.isFinite(maxLocations)
           ? Math.max(0, maxLocations - currentLocations.length)
           : null;
-        const requestedLimit = Number.isFinite(requestedAddCount)
-          ? requestedAddCount
-          : null;
-
-        // 현재 로드맵에 없는 새로운 ID들만 필터링
-        const newIds = data.recommendedRegionIds.filter(
-          id => !currentLocationIds.has(id),
-        );
-
-        const effectiveLimit = Number.isFinite(remainingSlots)
-          ? Number.isFinite(requestedLimit)
-            ? Math.min(remainingSlots, requestedLimit)
-            : remainingSlots
-          : requestedLimit;
-
-        const idsForApply = Number.isFinite(effectiveLimit)
-          ? newIds.slice(0, effectiveLimit)
-          : newIds;
+        const idsForApply = Number.isFinite(remainingSlots) ? newIds.slice(0, remainingSlots) : newIds;
 
         if (idsForApply.length > 0) {
-          // 추가할 장소 있음 → 로드맵에 반영
-          onTripLocationsChange?.(idsForApply, {
-            maxLocations,
-            requestedAddCount,
-          });
-        } else if (remainingSlots === 0) {
-          // 슬롯이 가득 찬 경우
+          onTripLocationsChange?.(idsForApply, { maxLocations });
+        } else {
+          const answerText = String(data?.answer || '').trim();
           setMessages(prev => [
             ...prev,
-            {
-              role: 'assistant',
-              text: `현재 ${maxLocations}개 장소로 가득 찼습니다. 기간을 연장하면 더 추가할 수 있어요! 예: "1일 더 추가해줘"`,
-            },
-          ]);
-        } else if (newIds.length === 0) {
-          // 추천 장소가 모두 이미 로드맵에 있는 경우
-          setMessages(prev => [
-            ...prev,
-            {
-              role: 'assistant',
-              text: '모두 이미 추가된 장소네요. 다른 지역이나 테마를 추천해주시면 새로운 장소를 찾아드릴 수 있습니다!',
-            },
+            { role: 'assistant', text: answerText || '추가할 새 장소를 찾지 못했어요.' },
           ]);
         }
-      } else if (!Array.isArray(data?.recommendedRegionIds)) {
-        // 권장 지역 ID가 없는 경우
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', text: data.answer || '응답이 비어 있습니다.' },
-        ]);
+        return;
       }
-    } catch (error) {
-      console.error('Chat error:', error);
+
+      // 추천 ID 없는 경우 (답변만 있음)
       setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          text: '챗봇 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.',
-        },
+        { role: 'assistant', text: String(data?.answer || '').trim() || '응답을 받지 못했어요.' },
+      ]);
+    } catch {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: '챗봇 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.' },
       ]);
     } finally {
       setIsLoading(false);
@@ -533,23 +354,19 @@ export default function TripChatPanel({
 
   return (
     <section className="trip-chat-panel">
-      <h2 className="trip-chat-title">🤖 로드맵 편집 챗봇</h2>
+      <div className="trip-chat-title-wrap">
+        <h2 className="trip-chat-title">로드맵 편집 챗봇</h2>
+        <div className="trip-chat-help-btn">
+          ?
+          <div className="trip-chat-help-tooltip">{HELP_TEXT}</div>
+        </div>
+      </div>
 
       {/* Current locations info */}
       {currentLocations.length > 0 && (
         <div className="trip-chat-info">
           <span className="info-label">
             현재 {currentLocations.length}개 장소
-          </span>
-          <span className="info-icons">
-            {currentLocations.slice(0, 3).map(loc => (
-              <span key={loc.id} title={loc.name}>
-                📍
-              </span>
-            ))}
-            {currentLocations.length > 3 && (
-              <span>+{currentLocations.length - 3}</span>
-            )}
           </span>
         </div>
       )}
@@ -572,10 +389,24 @@ export default function TripChatPanel({
               delay: message.role === 'assistant' ? ASSISTANT_MESSAGE_DELAY : 0,
             }}
           >
-            {message.role === 'assistant' && (
-              <span className="chat-icon">🤖</span>
-            )}
             {message.text}
+            {message.componentType &&
+              ACTION_COMPONENT_MAP[message.componentType] && (
+                <div className="copilot-ui-button-wrap">
+                  <button
+                    type="button"
+                    className="copilot-ui-open-btn"
+                    onClick={() =>
+                      setVisualPopup({
+                        componentType: message.componentType,
+                        uiData: message.uiData,
+                      })
+                    }
+                  >
+                    {ACTION_LABEL_MAP[message.componentType] ?? '시각화 보기'} →
+                  </button>
+                </div>
+              )}
           </motion.div>
         ))}
         {isLoading && (
@@ -589,11 +420,38 @@ export default function TripChatPanel({
               delay: LOADING_INDICATOR_DELAY,
             }}
           >
-            <span className="chat-icon">🤖</span>
-            응답 생성 중...
+            <span className="chatbot-skeleton-dot" />
+            <span className="chatbot-skeleton-dot" />
+            <span className="chatbot-skeleton-dot" />
           </motion.div>
         )}
       </div>
+
+      {visualPopup && createPortal(
+        <div
+          className="visual-popup-overlay"
+          onClick={() => setVisualPopup(null)}
+          role="presentation"
+        >
+          <div
+            className="visual-popup-content"
+            onClick={e => e.stopPropagation()}
+            role="presentation"
+          >
+            <button
+              type="button"
+              className="visual-popup-close"
+              onClick={() => setVisualPopup(null)}
+            >
+              ✕
+            </button>
+            {ACTION_COMPONENT_MAP[visualPopup.componentType]?.(
+              visualPopup.uiData,
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Input form */}
       <form className="trip-chat-form" onSubmit={handleSubmit}>
@@ -610,9 +468,23 @@ export default function TripChatPanel({
           disabled={isLoading}
         />
         <button className="trip-chat-send" type="submit" disabled={isLoading}>
-          {isLoading ? '⏳' : '✈️'}
+          →
         </button>
       </form>
     </section>
+  );
+}
+
+export default function TripChatPanel({
+  onResetRef,
+  onTripLocationsReplaceAll,
+  ...props
+}) {
+  return (
+    <TripChatPanelInner
+      {...props}
+      onResetRef={onResetRef}
+      onTripLocationsReplaceAll={onTripLocationsReplaceAll}
+    />
   );
 }

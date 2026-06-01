@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import RoadMap from '../components/RoadMap';
 import TripChatPanel from '../components/TripChatPanel';
 import RegionModal from '../components/RegionModal';
-import ExportButton from '../components/ExportButton';
+import { normalizeRegionMediaFields, resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -15,16 +15,44 @@ const API_BASE_URL =
 export default function TripPlannerPage({ regions = [] }) {
   // Roadmap locations (user's selected trip itinerary)
   const [roadmapLocations, setRoadmapLocations] = useState([]);
+  const chatResetRef = useRef(null);
 
   // Selected region for detail modal
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [insightLocation, setInsightLocation] = useState(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
+  const [modalCrawlImages, setModalCrawlImages] = useState([]);
+  const [modalArticle, setModalArticle] = useState(null);
+  const [modalArticleLoading, setModalArticleLoading] = useState(false);
+  const [scrappedIds, setScrappedIds] = useState(() => {
+    try { const p = JSON.parse(localStorage.getItem('lv_scraps') || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
+  });
 
   // Create a map of region ID -> full region data for quick lookup
   const regionMap = useMemo(() => {
     return new Map(regions.map(region => [region.id, region]));
   }, [regions]);
+
+  /** 모달: 인사이트가 좌표를 비우는 경우에도 로드맵에 있던 주소·좌표 유지 */
+  const modalRegion = useMemo(() => {
+    if (!selectedLocation) {
+      return null;
+    }
+    if (!insightLocation) {
+      return selectedLocation;
+    }
+    return {
+      ...selectedLocation,
+      ...insightLocation,
+      latitude: insightLocation.latitude ?? selectedLocation.latitude,
+      longitude: insightLocation.longitude ?? selectedLocation.longitude,
+      address: insightLocation.address || selectedLocation.address || '',
+      imageUrl: insightLocation.imageUrl || selectedLocation.imageUrl,
+      summary: insightLocation.summary || selectedLocation.summary,
+      summaryShort:
+        insightLocation.summaryShort || selectedLocation.summaryShort,
+    };
+  }, [selectedLocation, insightLocation]);
 
   // Fetch detailed insight for selected location
   useEffect(() => {
@@ -47,7 +75,7 @@ export default function TripPlannerPage({ regions = [] }) {
 
         const data = await response.json();
         if (isMounted && data?.region) {
-          setInsightLocation(data.region);
+          setInsightLocation(normalizeRegionMediaFields({ ...data.region }));
         }
       } catch (error) {
         console.error('Failed to fetch location insight:', error);
@@ -64,6 +92,37 @@ export default function TripPlannerPage({ regions = [] }) {
       isMounted = false;
     };
   }, [selectedLocation]);
+
+  // 크롤 이미지 & 아티클 fetch
+  useEffect(() => {
+    const id = selectedLocation?.id;
+    if (!id) { setModalCrawlImages([]); setModalArticle(null); setModalArticleLoading(false); return; }
+    let cancelled = false;
+    setModalCrawlImages([]); setModalArticle(null); setModalArticleLoading(true);
+    (async () => {
+      try {
+        await fetch(`${API_BASE_URL}/api/places/${id}/crawl`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (cancelled) return;
+        const imgRes = await fetch(`${API_BASE_URL}/api/places/${id}/images`);
+        if (imgRes.ok && !cancelled) { const d = await imgRes.json(); setModalCrawlImages((d.images || []).map(x => x.url).filter(Boolean).map(u => resolveBackendMediaUrl(u))); }
+        if (cancelled) return;
+        const artRes = await fetch(`${API_BASE_URL}/api/places/${id}/article`);
+        if (cancelled) return;
+        if (artRes.ok) { const a = await artRes.json(); if (!cancelled) setModalArticle({ title: a.title || '', content: a.content || '' }); }
+        else if (!cancelled) setModalArticle(null);
+      } catch { if (!cancelled) setModalArticle(null); }
+      finally { if (!cancelled) setModalArticleLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedLocation?.id]);
+
+  const handleToggleScrap = (regionId) => {
+    setScrappedIds(prev => {
+      const next = prev.includes(regionId) ? prev.filter(id => id !== regionId) : [...prev, regionId];
+      localStorage.setItem('lv_scraps', JSON.stringify(next));
+      return next;
+    });
+  };
 
   /**
    * Handle location replacement in roadmap
@@ -139,6 +198,22 @@ export default function TripPlannerPage({ regions = [] }) {
   };
 
   /**
+   * 전체 재계획(replan): 추천 id 순서대로 로드맵을 통째로 교체
+   */
+  const handleTripLocationsReplaceAll = recommendedIds => {
+    if (!Array.isArray(recommendedIds) || recommendedIds.length === 0) {
+      return;
+    }
+    const next = recommendedIds
+      .map(id => regionMap.get(Number(id)))
+      .filter(region => region !== undefined);
+    if (next.length === 0) {
+      return;
+    }
+    setRoadmapLocations(next);
+  };
+
+  /**
    * Remove a location from the roadmap
    */
   const handleRemoveLocation = locationId => {
@@ -181,6 +256,7 @@ export default function TripPlannerPage({ regions = [] }) {
     setRoadmapLocations([]);
     setSelectedLocation(null);
     setInsightLocation(null);
+    chatResetRef.current?.();
   };
 
   return (
@@ -229,9 +305,6 @@ export default function TripPlannerPage({ regions = [] }) {
                 isModalOpen={Boolean(selectedLocation)}
               />
             )}
-
-            {/* Export buttons */}
-            <ExportButton roadmapLocations={roadmapLocations} />
           </div>
         </div>
 
@@ -239,20 +312,32 @@ export default function TripPlannerPage({ regions = [] }) {
         <div className="trip-planner-right">
           <TripChatPanel
             onTripLocationsChange={handleTripLocationsChange}
+            onTripLocationsReplaceAll={handleTripLocationsReplaceAll}
             onReplaceLocation={handleReplaceLocation}
+            onRemoveLocation={handleRemoveLocation}
             resolveRegionName={resolveRegionName}
             currentLocations={roadmapLocations}
+            onResetRef={chatResetRef}
           />
         </div>
       </div>
 
       {/* Modal for location details */}
       <RegionModal
-        region={insightLocation || selectedLocation}
+        region={modalRegion}
         isLoading={isInsightLoading}
+        apiBaseUrl={API_BASE_URL}
+        crawlImageUrls={modalCrawlImages}
+        article={modalArticle}
+        articleLoading={modalArticleLoading}
+        scrappedIds={scrappedIds}
+        onToggleScrap={handleToggleScrap}
         onClose={() => {
           setSelectedLocation(null);
           setInsightLocation(null);
+          setModalCrawlImages([]);
+          setModalArticle(null);
+          setModalArticleLoading(false);
         }}
       />
     </div>
