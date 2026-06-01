@@ -66,9 +66,6 @@ export default function TripPlaceSearch({
         onFocus={() => setOpen(true)}
         disabled={atCap}
       />
-      {atCap ? (
-        <p className="trip-place-search-cap">일정이 가득 찼어요. 삭제하거나 기간을 늘려 주세요.</p>
-      ) : null}
       {open && query.trim() && results.length > 0 ? (
         <ul className="trip-place-search-results" role="listbox">
           {results.map(region => {

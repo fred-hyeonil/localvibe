@@ -38,7 +38,8 @@ const MemoTripPlannerPage = memo(TripPlannerPage);
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-const FEED_SIZE = 9;
+/** 갤러리 그리드: 3열 × 5행 */
+const FEED_SIZE = 15;
 const GALLERY_VECTOR_ACTIVE_KEY = 'lv_gallery_vector_active';
 const GALLERY_SEARCH_RESULTS_KEY = 'lv_gallery_search_results';
 const SIDEBAR_WIDTH_KEY = 'lv_sidebar_width';
@@ -127,7 +128,7 @@ function readInitialDisplayedRegions() {
   return [];
 }
 
-/** Fisher–Yates 셔플 후 피드용 N개 추출 (사이드바 지역마다 다른 9장) */
+/** Fisher–Yates 셔플 후 피드용 N개 추출 (초기 피드·랜덤 샘플) */
 function pickFeedItems(items, size = FEED_SIZE) {
   if (!Array.isArray(items) || !items.length) return [];
   const withImg = items.filter((r) => String(r?.imageUrl || '').trim());
@@ -140,7 +141,7 @@ function pickFeedItems(items, size = FEED_SIZE) {
   return dedupeFeedPick(shuffled, [], new Set(), new Set(), size);
 }
 
-/** API 유사도·점수 순 유지, 상위 N개만 (갤러리 벡터 검색용 3×3) */
+/** API 유사도·점수 순 유지, 상위 N개만 (갤러리 벡터 검색용 3×5) */
 function pickOrderedFeedItems(items, size = FEED_SIZE) {
   if (!Array.isArray(items) || !items.length) return [];
   return dedupeFeedPick(items, [], new Set(), new Set(), size);
@@ -388,10 +389,6 @@ export default function App() {
   const accountAreaRef = useRef(null);
   const galleryVectorSearchActiveRef = useRef(isGalleryVectorFeedLocked());
   const gallerySearchSeqRef = useRef(0);
-  /** 사이드바 지역 필터: 전체 후보 풀 + 라벨 (클릭·새로고침마다 랜덤 9개) */
-  const [sidebarGalleryPool, setSidebarGalleryPool] = useState([]);
-  const [sidebarGalleryLabel, setSidebarGalleryLabel] = useState('');
-
   useEffect(() => {
     const sync = () => {
       try {
@@ -743,32 +740,20 @@ export default function App() {
     [displayedRegions, regionMap],
   );
 
-  const clearSidebarGalleryFilter = useCallback(() => {
-    setSidebarGalleryPool([]);
-    setSidebarGalleryLabel('');
-  }, []);
-
-  const applySidebarGalleryFeed = useCallback((list, label) => {
+  const applySidebarGalleryFeed = useCallback((list) => {
     const normalized = (Array.isArray(list) ? list : [])
       .map(r => normalizeRegionMediaFields(r))
       .filter(Boolean);
     if (normalized.length === 0) return false;
-    setSidebarGalleryPool(normalized);
-    setSidebarGalleryLabel(String(label || '').trim());
-    setDisplayedRegions(pickFeedItems(normalized, FEED_SIZE));
+    clearGalleryVectorLock(galleryVectorSearchActiveRef);
+    setDisplayedRegions(normalized);
     return true;
   }, []);
-
-  const handleShuffleSidebarGallery = useCallback(() => {
-    if (!sidebarGalleryPool.length) return;
-    setDisplayedRegions(pickFeedItems(sidebarGalleryPool, FEED_SIZE));
-  }, [sidebarGalleryPool]);
 
   const handleGalleryVectorSearch = useCallback(
     async q => {
       const trimmed = String(q || '').trim();
       if (!trimmed) return false;
-      clearSidebarGalleryFilter();
       const seq = ++gallerySearchSeqRef.current;
       setGallerySearchBusy(true);
       try {
@@ -803,7 +788,7 @@ export default function App() {
         if (seq === gallerySearchSeqRef.current) setGallerySearchBusy(false);
       }
     },
-    [regionMap, clearSidebarGalleryFilter],
+    [regionMap],
   );
 
   const handleSidebarRegionClick = useCallback(
@@ -811,7 +796,6 @@ export default function App() {
       const key = String(label || '').trim();
       if (!key) return;
       clearGalleryVectorLock(galleryVectorSearchActiveRef);
-      clearSidebarGalleryFilter();
       setActiveTab('gallery');
 
       try {
@@ -831,7 +815,7 @@ export default function App() {
 
       window.alert(`"${key}" 지역(주소 기준)에 맞는 장소를 찾지 못했습니다.`);
     },
-    [regions, applySidebarGalleryFeed, clearSidebarGalleryFilter],
+    [regions, applySidebarGalleryFeed],
   );
 
   const handleToggleScrap = useCallback(
@@ -1074,8 +1058,7 @@ export default function App() {
                         className="sidebar-link sidebar-link--child"
                         type="button"
                         onClick={() => {
-                          void handleGalleryVectorSearch(city);
-                          setActiveTab('gallery');
+                          void handleSidebarRegionClick(city);
                         }}
                       >
                         {city}
@@ -1135,25 +1118,6 @@ export default function App() {
                   <p className="gallery-pickle-text">딱 맞는 스팟 찾는 중...</p>
                 </div>
               ) : null}
-              {!gallerySearchBusy && sidebarGalleryLabel ? (
-                <div className="gallery-region-feed-bar">
-                  <span className="gallery-region-feed-label">
-                    📍 {sidebarGalleryLabel}
-                    {sidebarGalleryPool.length > FEED_SIZE
-                      ? ` · ${sidebarGalleryPool.length}곳 중 랜덤 ${FEED_SIZE}개`
-                      : ` · ${sidebarGalleryPool.length}곳`}
-                  </span>
-                  {sidebarGalleryPool.length > FEED_SIZE ? (
-                    <button
-                      type="button"
-                      className="gallery-region-feed-shuffle"
-                      onClick={handleShuffleSidebarGallery}
-                    >
-                      다른 장소 보기 ↻
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
               {galleryFeedLoading && !gallerySearchBusy && !feedHasDisplayImages(galleryDisplayRegions) ? (
                 <p className="gallery-feed-loading" aria-live="polite">장소를 불러오는 중…</p>
               ) : null}
@@ -1173,7 +1137,10 @@ export default function App() {
               )}
             </>
           )}
-          <div hidden={activeTab !== 'planner'} aria-hidden={activeTab !== 'planner'}>
+          <div
+            className={activeTab === 'planner' ? 'trip-planner-mount' : 'trip-planner-mount trip-planner-mount--hidden'}
+            aria-hidden={activeTab !== 'planner'}
+          >
             <MemoTripPlannerPage
               regionMap={regionMap}
               scrappedIds={scrappedIds}

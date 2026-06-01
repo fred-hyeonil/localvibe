@@ -100,7 +100,7 @@ def list_regions_feed(*, limit: int = 9) -> list[Region]:
     return [_region_from_row(_fill_missing_insight_fields(row)) for row in rows]
 
 
-def list_regions_in_location(locality: str, *, limit: int = 120) -> list[Region]:
+def list_regions_in_location(locality: str, *, limit: int = 500) -> list[Region]:
     """사이드바 지역 클릭 — 주소·행정구역 기준 장소 목록 (이름 매칭 없음)."""
     label = str(locality or "").strip()
     if len(label) < 2:

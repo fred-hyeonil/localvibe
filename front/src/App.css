@@ -318,13 +318,15 @@ body { margin: 0; background: var(--gray-50); }
 
 .gallery-search-stack { max-width: 600px; margin: 0 0 20px; }
 
-/* ── 갤러리 ── */
-.gallery-scroll-area { margin-bottom: 40px; }
+/* ── 갤러리 (3열 × 5행, 세로 스크롤) ── */
+.gallery-scroll-area {
+  margin-bottom: 40px;
+}
 
 .region-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0,1fr));
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .region-card {
@@ -341,15 +343,19 @@ body { margin: 0; background: var(--gray-50); }
 
 .region-preview {
   display: block;
-  width: 100%; border: none;
-  padding: 0; background: transparent;
-  cursor: pointer; position: relative;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
   overflow: hidden;
+  aspect-ratio: 4 / 3;
 }
 
 .region-image {
   width: 100%;
-  height: 220px;
+  height: 100%;
   object-fit: cover;
   display: block;
   transition: transform var(--tr-slow);
@@ -900,6 +906,11 @@ body { margin: 0; background: var(--gray-50); }
 
 .app-tab:hover { color: var(--gray-700); }
 .app-tab.active { color: var(--black); font-weight: 700; border-bottom-color: var(--black); }
+
+/* 플래너 탭 전환 시 언마운트 없이 숨김 (일정·채팅 유지) */
+.trip-planner-mount--hidden {
+  display: none !important;
+}
 
 /* ── Trip Planner ── */
 .trip-planner-page {
@@ -1550,8 +1561,7 @@ body { margin: 0; background: var(--gray-50); }
   flex-shrink: 0;
 }
 
-.comparison-modal-back,
-.comparison-modal-close {
+.comparison-modal-back {
   flex-shrink: 0;
   width: 36px;
   height: 36px;
@@ -1568,8 +1578,7 @@ body { margin: 0; background: var(--gray-50); }
   transition: background 150ms, color 150ms;
 }
 
-.comparison-modal-back:hover,
-.comparison-modal-close:hover {
+.comparison-modal-back:hover {
   background: var(--gray-50);
   color: var(--black);
 }
@@ -1988,10 +1997,6 @@ body { margin: 0; background: var(--gray-50); }
 
 .comparison-modal-footer {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 14px 18px 18px;
   border-top: 1px solid var(--gray-100);
   background: var(--gray-50);
@@ -2001,23 +2006,6 @@ body { margin: 0; background: var(--gray-50); }
   margin: 0;
   font-size: 12px;
   color: var(--gray-500);
-}
-
-.comparison-modal-done {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 10px;
-  background: var(--black);
-  color: var(--white);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: inherit;
-  white-space: nowrap;
-}
-
-.comparison-modal-done:hover {
-  opacity: 0.88;
 }
 
 @media (max-width: 720px) {
@@ -2350,12 +2338,11 @@ body { margin: 0; background: var(--gray-50); }
 
 .trip-select-new-btn:hover { background: var(--gray-800); }
 
-/* 카드 이미지 정사각형 */
+/* 카드 이미지 — 3×5 그리드 비율 */
 .region-image {
   width: 100% !important;
-  height: 200px !important;
+  height: 100% !important;
   object-fit: cover !important;
-  aspect-ratio: auto !important;
 }
 
 .region-grid {
@@ -2840,48 +2827,6 @@ body { margin: 0; background: var(--gray-50); }
 
 .modal-article-close:hover { background: rgba(0,0,0,0.7); }
 
-/* 검색창 — 화면 넓어져도 중앙 고정 크기 유지 */
-.gallery-region-feed-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  max-width: 960px;
-  margin: 0 auto 14px;
-  padding: 10px 14px;
-  background: var(--white);
-  border: 1px solid var(--gray-200);
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-}
-
-.gallery-region-feed-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-700);
-}
-
-.gallery-region-feed-shuffle {
-  flex-shrink: 0;
-  height: 34px;
-  padding: 0 14px;
-  font-size: 12px;
-  font-weight: 700;
-  font-family: inherit;
-  color: var(--black);
-  background: var(--gray-50);
-  border: 1px solid var(--gray-200);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background var(--tr-fast), border-color var(--tr-fast);
-}
-
-.gallery-region-feed-shuffle:hover {
-  background: var(--white);
-  border-color: var(--gray-300);
-}
-
 .gallery-feed-loading {
   text-align: center;
   color: #6b7280;
@@ -3232,9 +3177,56 @@ body { margin: 0; background: var(--gray-50); }
 /* ── 채팅 도움말 툴팁 ── */
 .trip-chat-title-wrap {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+
+.trip-chat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.trip-chat-title-group {
+  display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 6px;
+  min-width: 0;
+}
+
+.trip-chat-title-group .trip-chat-title {
+  margin: 0;
+}
+
+.trip-chat-new-btn {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-700);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.trip-chat-new-btn:hover:not(:disabled) {
+  background: var(--gray-50);
+  border-color: var(--gray-300);
+  color: var(--black);
+}
+
+.trip-chat-new-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .trip-chat-help-btn {
