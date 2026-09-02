@@ -5,7 +5,7 @@ import TripPlaceSearch from '../components/TripPlaceSearch';
 import TripSelectModal from '../components/TripSelectModal';
 import RegionModal from '../components/RegionModal';
 import { normalizeRegionMediaFields, resolveBackendMediaUrl } from '../utils/apiMediaUrl';
-import { createTrip, replaceTripPlaces } from '../utils/tripsApi';
+import { createTrip, replaceTripPlaces } from '../features/trips/tripsApi';
 import {
   applyScheduleToRegions,
   recomputeScheduleForOrderedLocations,

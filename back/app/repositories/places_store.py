@@ -12,7 +12,7 @@ from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.repositories.db import Base
-from app.services.media_utils import sanitize_display_image_url
+from app.shared.media import sanitize_display_image_url
 from app.utils.province_names import canonical_province, province_tokens_for_filter, special_province_canon_for_locality
 from app.utils.sidebar_location import address_tokens_for_locality, place_row_matches_sidebar_locality
 
