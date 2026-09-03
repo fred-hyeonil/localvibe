@@ -47,6 +47,13 @@ export default function RegionGallery({ regions, onSelect }) {
                 <p className="region-card-summary">
                   {normalizeSummary(region.summary)}
                 </p>
+                <button
+                  type="button"
+                  className="region-card-read-more"
+                  onClick={() => onSelect(region)}
+                >
+                  Read More
+                </button>
               </div>
             </article>
           );
