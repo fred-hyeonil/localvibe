@@ -113,16 +113,7 @@ export default function CommonHeader({ onTabChange }) {
           >
             플래너
           </span>
-          <span
-            className="common-header-nav-link"
-            onClick={() =>
-              onTabChange
-                ? onTabChange('mypage')
-                : navigate('/main', { state: { tab: 'mypage' } })
-            }
-          >
-            마이페이지
-          </span>
+          <span className="common-header-nav-link">커뮤니티</span>
         </nav>
 
         {/* 구분선 */}
@@ -156,10 +147,55 @@ export default function CommonHeader({ onTabChange }) {
               </button>
               {isProfileOpen && (
                 <div className="common-header-profile-dropdown">
+                  <div className="common-header-profile-summary">
+                    {user.picture ? (
+                      <img
+                        src={user.picture}
+                        alt=""
+                        className="common-header-profile-summary-avatar"
+                      />
+                    ) : (
+                      <div className="common-header-profile-summary-avatar common-header-avatar-fallback">
+                        {String(user.name || 'U')
+                          .slice(0, 1)
+                          .toUpperCase()}
+                      </div>
+                    )}
+                    <div className="common-header-profile-summary-text">
+                      <strong>{user.name || '사용자'}</strong>
+                      <span>{user.email}</span>
+                    </div>
+                  </div>
+                  <div className="common-header-profile-divider" />
+                  <button
+                    className="common-header-profile-item"
+                    type="button"
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      onTabChange
+                        ? onTabChange('mypage')
+                        : navigate('/main', { state: { tab: 'mypage' } });
+                    }}
+                  >
+                    <span
+                      className="common-header-profile-menu-icon"
+                      aria-hidden="true"
+                    >
+                      ○
+                    </span>
+                    마이페이지
+                  </button>
                   <button
                     className="common-header-profile-logout"
+                    type="button"
                     onClick={handleLogout}
                   >
+                    <span
+                      className="common-header-profile-menu-icon"
+                      aria-hidden="true"
+                    >
+                      ↪
+                    </span>
                     로그아웃
                   </button>
                 </div>

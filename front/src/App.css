@@ -3339,15 +3339,78 @@ body {
   right: 0;
   background: var(--white);
   border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  padding: 10px;
-  min-width: 130px;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  padding: 12px;
+  min-width: 250px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   z-index: 2000;
   animation: dropdown-in 0.15s ease;
+}
+
+.common-header-profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 12px;
+}
+
+.common-header-profile-summary-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.common-header-profile-summary-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.common-header-profile-summary-text strong,
+.common-header-profile-summary-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.common-header-profile-summary-text strong {
+  font-size: 15px;
+  color: var(--gray-900);
+}
+
+.common-header-profile-summary-text span {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.common-header-profile-item,
+.common-header-profile-logout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.common-header-profile-divider {
+  height: 1px;
+  background: var(--gray-200);
+  margin: 8px 0;
+}
+
+.common-header-profile-menu-icon {
+  width: 18px;
+  color: var(--gray-500);
+  font-size: 17px;
+  line-height: 1;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 @keyframes dropdown-in {
@@ -3361,6 +3424,7 @@ body {
   }
 }
 
+.common-header-profile-item,
 .common-header-profile-logout {
   padding: 7px 8px;
   font-size: 13px;
@@ -3376,6 +3440,7 @@ body {
     background var(--tr-fast),
     color var(--tr-fast);
 }
+.common-header-profile-item:hover,
 .common-header-profile-logout:hover {
   background: var(--gray-100);
   color: var(--black);
@@ -3402,6 +3467,12 @@ body {
   font-size: 12px;
   color: var(--gray-700);
   flex-shrink: 0;
+}
+
+.common-header-profile-summary-avatar.common-header-avatar-fallback {
+  width: 42px;
+  height: 42px;
+  font-size: 15px;
 }
 
 .common-header-user-name {

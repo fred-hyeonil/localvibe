@@ -9,7 +9,7 @@ export default function RegionGallery({ regions, onSelect }) {
   const normalizeSummary = summary => {
     const text = String(summary || '').trim();
     if (!text) return SUMMARY_FALLBACK;
-    return text.length > 44 ? `${text.slice(0, 44)}...` : text;
+    return text;
   };
 
   return (
