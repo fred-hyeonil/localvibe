@@ -74,6 +74,7 @@ export default function CommonHeader({ onTabChange }) {
     localStorage.removeItem('lv_access_token');
     localStorage.removeItem('lv_user');
     window.dispatchEvent(new Event('lv-auth-changed'));
+    navigate('/');
   };
 
   return (

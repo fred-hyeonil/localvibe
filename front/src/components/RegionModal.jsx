@@ -130,6 +130,7 @@ function ImageCarousel({ images, fallback }) {
 
   return (
     <div
+      className="region-modal-backdrop"
       style={{
         position: 'relative',
         width: '100%',
@@ -401,6 +402,7 @@ export default function RegionModal({
       onClick={onClose}
     >
       <article
+        className="region-modal-dialog"
         style={{
           position: 'relative',
           width: 'min(600px, 96vw)',
@@ -507,7 +509,16 @@ export default function RegionModal({
             {region.name}
           </h1>
           {articleData.title && articleData.title !== region.name && (
-            <p style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 600, color: '#999', letterSpacing: '-0.2px', fontFamily: "'Pretendard', sans-serif" }}>
+            <p
+              style={{
+                margin: '0 0 10px',
+                fontSize: 16,
+                fontWeight: 600,
+                color: '#999',
+                letterSpacing: '-0.2px',
+                fontFamily: "'Pretendard', sans-serif",
+              }}
+            >
               {articleData.title}
             </p>
           )}

@@ -520,6 +520,41 @@ body {
   border-color: var(--gray-500);
 }
 
+@keyframes region-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes region-modal-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.region-modal-backdrop {
+  animation: region-modal-backdrop-in 0.2s ease-out both;
+}
+
+.region-modal-dialog {
+  animation: region-modal-dialog-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .region-modal-backdrop,
+  .region-modal-dialog {
+    animation: none;
+  }
+}
+
 /* ── 챗봇 패널 ── */
 .chatbot-panel {
   margin-bottom: 20px;
