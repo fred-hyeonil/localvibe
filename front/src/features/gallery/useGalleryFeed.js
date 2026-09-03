@@ -13,10 +13,15 @@ const DEFAULT_REGIONS_NORMALIZED = defaultRegions.map(r =>
 );
 
 function normalizeTextKey(v) {
-  return String(v || '').toLowerCase().replace(/\s+/g, '').trim();
+  return String(v || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim();
 }
 function normalizeImageKey(u) {
-  const v = String(u || '').trim().toLowerCase();
+  const v = String(u || '')
+    .trim()
+    .toLowerCase();
   return v ? v.replace(/^https?:/, '') : '';
 }
 
@@ -58,11 +63,26 @@ export function pickOrderedFeedItems(items, size = FEED_SIZE) {
 }
 
 export function feedHasDisplayImages(list) {
-  return Array.isArray(list) && list.some(r => String(r?.imageUrl || '').trim());
+  return (
+    Array.isArray(list) && list.some(r => String(r?.imageUrl || '').trim())
+  );
 }
 
 function isVectorLocked() {
-  try { return sessionStorage.getItem(VECTOR_ACTIVE_KEY) === '1'; } catch { return false; }
+  try {
+    return sessionStorage.getItem(VECTOR_ACTIVE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function clearPersistedResultsOnReload() {
+  try {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    if (navigation?.type !== 'reload') return;
+    sessionStorage.removeItem(VECTOR_ACTIVE_KEY);
+    sessionStorage.removeItem(SEARCH_RESULTS_KEY);
+  } catch {}
 }
 
 function readPersistedResults() {
@@ -76,7 +96,9 @@ function readPersistedResults() {
       arr.map(r => normalizeRegionMediaFields({ ...r })),
       FEED_SIZE,
     );
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function persistVectorResults(feed) {
@@ -97,14 +119,18 @@ function clearVectorLock(lockRef) {
 function mapSearchHitToRegion(row, regionMap) {
   const id = Number(row.place_id);
   const base = regionMap.get(id);
-  const sim = row.pinecone_similarity != null
-    ? `유사도 ${Number(row.pinecone_similarity).toFixed(3)}`
-    : '';
+  const sim =
+    row.pinecone_similarity != null
+      ? `유사도 ${Number(row.pinecone_similarity).toFixed(3)}`
+      : '';
   return {
     id,
     name: row.name || base?.name || '이름 없음',
     imageUrl: String(row.imageUrl || base?.imageUrl || '').trim(),
-    summary: base?.summary || [row.category, row.region, sim].filter(Boolean).join(' · ') || '상세 설명이 없습니다.',
+    summary:
+      base?.summary ||
+      [row.category, row.region, sim].filter(Boolean).join(' · ') ||
+      '상세 설명이 없습니다.',
     summaryShort: sim || base?.summaryShort,
     address: base?.address,
     latitude: base?.latitude,
@@ -113,9 +139,12 @@ function mapSearchHitToRegion(row, regionMap) {
     province: row.province || base?.province,
     dataSource: base?.dataSource,
     sourceId: base?.sourceId,
-    recommendedBusinesses: base?.recommendedBusinesses?.length > 0
-      ? base.recommendedBusinesses
-      : row.category ? [row.category] : [],
+    recommendedBusinesses:
+      base?.recommendedBusinesses?.length > 0
+        ? base.recommendedBusinesses
+        : row.category
+          ? [row.category]
+          : [],
     busyHours: base?.busyHours || [],
     targetCustomers: base?.targetCustomers || [],
   };
@@ -126,6 +155,8 @@ function mapSearchHitToRegion(row, regionMap) {
  * regions (전체 목록), regionMap (id→region), 피드 상태, 검색 핸들러를 반환.
  */
 export function useGalleryFeed() {
+  clearPersistedResultsOnReload();
+
   const [regions, setRegions] = useState(DEFAULT_REGIONS_NORMALIZED);
   const [displayedRegions, setDisplayedRegions] = useState(() =>
     isVectorLocked() ? (readPersistedResults() ?? []) : [],
@@ -153,25 +184,40 @@ export function useGalleryFeed() {
       try {
         const raw = sessionStorage.getItem(SEARCH_RESULTS_KEY);
         const arr = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(arr) && arr.length > 0 && !arr.some(r => String(r?.imageUrl || '').trim())) {
+        if (
+          Array.isArray(arr) &&
+          arr.length > 0 &&
+          !arr.some(r => String(r?.imageUrl || '').trim())
+        ) {
           clearVectorLock(vectorActiveRef);
         }
-      } catch { clearVectorLock(vectorActiveRef); }
+      } catch {
+        clearVectorLock(vectorActiveRef);
+      }
     }
     const locked = isVectorLocked();
     vectorActiveRef.current = locked;
 
     const loadFeed = async () => {
-      if (locked) { if (m) setFeedLoading(false); return; }
+      if (locked) {
+        if (m) setFeedLoading(false);
+        return;
+      }
       try {
-        const res = await fetch(`${API_BASE_URL}/api/regions/feed?limit=${FEED_SIZE}`);
+        const res = await fetch(
+          `${API_BASE_URL}/api/regions/feed?limit=${FEED_SIZE}`,
+        );
         const data = res.ok ? await res.json() : null;
         if (!m || !Array.isArray(data?.regions) || !data.regions.length) return;
         setDisplayedRegions(
-          data.regions.map(r => normalizeRegionMediaFields({ ...r })).slice(0, FEED_SIZE),
+          data.regions
+            .map(r => normalizeRegionMediaFields({ ...r }))
+            .slice(0, FEED_SIZE),
         );
-      } catch {}
-      finally { if (m) setFeedLoading(false); }
+      } catch {
+      } finally {
+        if (m) setFeedLoading(false);
+      }
     };
 
     const loadAll = async () => {
@@ -179,24 +225,32 @@ export function useGalleryFeed() {
         const res = await fetch(`${API_BASE_URL}/api/regions`);
         const data = res.ok ? await res.json() : null;
         if (!m || !Array.isArray(data?.regions) || !data.regions.length) return;
-        const normalized = data.regions.map(r => normalizeRegionMediaFields({ ...r }));
+        const normalized = data.regions.map(r =>
+          normalizeRegionMediaFields({ ...r }),
+        );
         setRegions(normalized);
         if (!vectorActiveRef.current && !isVectorLocked()) {
           setDisplayedRegions(prev =>
-            feedHasDisplayImages(prev) ? prev : pickFeedItems(normalized, FEED_SIZE),
+            feedHasDisplayImages(prev)
+              ? prev
+              : pickFeedItems(normalized, FEED_SIZE),
           );
         }
       } catch {
         if (!m || vectorActiveRef.current || isVectorLocked()) return;
         setDisplayedRegions(prev =>
-          feedHasDisplayImages(prev) ? prev : pickFeedItems(DEFAULT_REGIONS_NORMALIZED, FEED_SIZE),
+          feedHasDisplayImages(prev)
+            ? prev
+            : pickFeedItems(DEFAULT_REGIONS_NORMALIZED, FEED_SIZE),
         );
       }
     };
 
     loadFeed();
     loadAll();
-    return () => { m = false; };
+    return () => {
+      m = false;
+    };
   }, []);
 
   // regionMap 로드 후 displayedRegions의 imageUrl 보강
@@ -227,74 +281,91 @@ export function useGalleryFeed() {
     return true;
   }, []);
 
-  const handleVectorSearch = useCallback(async q => {
-    const trimmed = String(q || '').trim();
-    if (!trimmed) return false;
-    const seq = ++searchSeqRef.current;
-    setSearchBusy(true);
-    try {
-      const url = new URL(`${API_BASE_URL}/api/search`);
-      url.searchParams.set('q', trimmed);
-      const res = await fetch(url.toString());
-      if (seq !== searchSeqRef.current) return false;
-      if (!res.ok) { window.alert('검색 요청에 실패했습니다.'); return false; }
-      const data = await res.json();
-      const mapped = (Array.isArray(data?.results) ? data.results : []).map(row =>
-        normalizeRegionMediaFields(mapSearchHitToRegion(row, regionMap)),
-      );
-      if (seq !== searchSeqRef.current) return false;
-      if (mapped.length > 0) {
-        const feed = pickOrderedFeedItems(mapped, FEED_SIZE);
-        vectorActiveRef.current = true;
-        persistVectorResults(feed);
-        setDisplayedRegions(feed);
-        return true;
-      }
-      window.alert('검색 결과가 없습니다.');
-      return false;
-    } catch {
-      if (seq === searchSeqRef.current) window.alert('네트워크 오류입니다.');
-      return false;
-    } finally {
-      if (seq === searchSeqRef.current) setSearchBusy(false);
-    }
-  }, [regionMap]);
-
-  const handleSidebarRegionClick = useCallback(async label => {
-    const key = String(label || '').trim();
-    if (!key) return;
-    clearVectorLock(vectorActiveRef);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/regions?place_in=${encodeURIComponent(key)}`);
-      if (res.ok) {
+  const handleVectorSearch = useCallback(
+    async q => {
+      const trimmed = String(q || '').trim();
+      if (!trimmed) return false;
+      const seq = ++searchSeqRef.current;
+      setSearchBusy(true);
+      try {
+        const url = new URL(`${API_BASE_URL}/api/search`);
+        url.searchParams.set('q', trimmed);
+        const res = await fetch(url.toString());
+        if (seq !== searchSeqRef.current) return false;
+        if (!res.ok) {
+          window.alert('검색 요청에 실패했습니다.');
+          return false;
+        }
         const data = await res.json();
-        if (applySidebarFeed(data?.regions)) return;
+        const mapped = (Array.isArray(data?.results) ? data.results : []).map(
+          row =>
+            normalizeRegionMediaFields(mapSearchHitToRegion(row, regionMap)),
+        );
+        if (seq !== searchSeqRef.current) return false;
+        if (mapped.length > 0) {
+          const feed = pickOrderedFeedItems(mapped, FEED_SIZE);
+          vectorActiveRef.current = true;
+          persistVectorResults(feed);
+          setDisplayedRegions(feed);
+          return true;
+        }
+        window.alert('검색 결과가 없습니다.');
+        return false;
+      } catch {
+        if (seq === searchSeqRef.current) window.alert('네트워크 오류입니다.');
+        return false;
+      } finally {
+        if (seq === searchSeqRef.current) setSearchBusy(false);
       }
-    } catch {}
-    const local = filterRegionsBySidebarLocation(regions, key);
-    if (applySidebarFeed(local)) return;
-    window.alert(`"${key}" 지역(주소 기준)에 맞는 장소를 찾지 못했습니다.`);
-  }, [regions, applySidebarFeed]);
+    },
+    [regionMap],
+  );
+
+  const handleSidebarRegionClick = useCallback(
+    async label => {
+      const key = String(label || '').trim();
+      if (!key) return;
+      clearVectorLock(vectorActiveRef);
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/regions?place_in=${encodeURIComponent(key)}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (applySidebarFeed(data?.regions)) return;
+        }
+      } catch {}
+      const local = filterRegionsBySidebarLocation(regions, key);
+      if (applySidebarFeed(local)) return;
+      window.alert(`"${key}" 지역(주소 기준)에 맞는 장소를 찾지 못했습니다.`);
+    },
+    [regions, applySidebarFeed],
+  );
 
   // 표시용 regions (regionMap으로 필드 보강)
-  const galleryDisplayRegions = useMemo(() =>
-    displayedRegions.map(r => {
-      const id = Number(r?.id);
-      if (!Number.isFinite(id)) return r;
-      const base = regionMap.get(id);
-      if (!base) return r;
-      const s = r.summary && String(r.summary).trim() && r.summary !== '상세 설명이 없습니다.'
-        ? r.summary : base.summary || r.summary;
-      return {
-        ...r,
-        imageUrl: base.imageUrl || r.imageUrl || '',
-        summary: s,
-        address: r.address || base.address,
-        latitude: r.latitude ?? base.latitude,
-        longitude: r.longitude ?? base.longitude,
-        province: r.province || base.province,
-      };
-    }),
+  const galleryDisplayRegions = useMemo(
+    () =>
+      displayedRegions.map(r => {
+        const id = Number(r?.id);
+        if (!Number.isFinite(id)) return r;
+        const base = regionMap.get(id);
+        if (!base) return r;
+        const s =
+          r.summary &&
+          String(r.summary).trim() &&
+          r.summary !== '상세 설명이 없습니다.'
+            ? r.summary
+            : base.summary || r.summary;
+        return {
+          ...r,
+          imageUrl: base.imageUrl || r.imageUrl || '',
+          summary: s,
+          address: r.address || base.address,
+          latitude: r.latitude ?? base.latitude,
+          longitude: r.longitude ?? base.longitude,
+          province: r.province || base.province,
+        };
+      }),
     [displayedRegions, regionMap],
   );
 

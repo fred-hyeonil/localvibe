@@ -3336,7 +3336,7 @@ body {
 .common-header-profile-dropdown {
   position: absolute;
   top: calc(100% + 10px);
-  right: 0;
+  left: 0;
   background: var(--white);
   border: 1px solid var(--gray-200);
   border-radius: 16px;
@@ -3488,7 +3488,7 @@ body {
 .common-header-login-panel {
   position: absolute;
   top: calc(100% + 10px);
-  right: 0;
+  left: 0;
   background: var(--white);
   border: 1px solid var(--gray-200);
   border-radius: 16px;

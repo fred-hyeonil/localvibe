@@ -209,12 +209,6 @@ export default function CommonHeader({ onTabChange }) {
               >
                 로그인
               </button>
-              <button
-                className="common-header-btn common-header-btn-primary"
-                onClick={() => setIsLoginOpen(true)}
-              >
-                시작하기
-              </button>
             </>
           )}
           {isLoginOpen && (
