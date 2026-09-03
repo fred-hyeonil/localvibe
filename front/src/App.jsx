@@ -8,12 +8,18 @@ import TripPlannerPage from './pages/TripPlannerPage';
 import TripSelectModal from './components/TripSelectModal';
 import MyPage from './pages/MyPage';
 import ContactPage from './pages/ContactPage';
-import { normalizeRegionMediaFields, resolveBackendMediaUrl } from './utils/apiMediaUrl';
+import {
+  normalizeRegionMediaFields,
+  resolveBackendMediaUrl,
+} from './utils/apiMediaUrl';
 import { API_BASE_URL } from './shared/api/client';
 import { useAuth } from './shared/auth/AuthContext';
 import { useScraps } from './features/scraps/ScrapsContext';
 import { useTrips } from './features/trips/TripsContext';
-import { useGalleryFeed, feedHasDisplayImages } from './features/gallery/useGalleryFeed';
+import {
+  useGalleryFeed,
+  feedHasDisplayImages,
+} from './features/gallery/useGalleryFeed';
 
 const SIDEBAR_WIDTH_KEY = 'lv_sidebar_width';
 const SIDEBAR_WIDTH_DEFAULT = 210;
@@ -34,37 +40,138 @@ function readInitialSidebarWidth() {
 
 const REGION_TREE = [
   { id: 'metro', label: '수도권', children: ['서울', '경기', '인천'] },
-  { id: 'gangwon', label: '강원특별자치도', regionFilter: '강원특별자치도', children: ['강릉', '춘천', '원주', '속초'] },
-  { id: 'chungcheong', label: '충청', children: ['대전', '청주', '천안', '충주'] },
-  { id: 'jeonbuk', label: '전북특별자치도', regionFilter: '전북특별자치도', children: ['전주', '군산', '익산', '남원'] },
-  { id: 'jeonnam', label: '전라남도', children: ['광주', '여수', '순천', '목포'] },
-  { id: 'gyeongsang', label: '경상', children: ['부산', '대구', '경주', '울산', '포항'] },
+  {
+    id: 'gangwon',
+    label: '강원특별자치도',
+    regionFilter: '강원특별자치도',
+    children: ['강릉', '춘천', '원주', '속초'],
+  },
+  {
+    id: 'chungcheong',
+    label: '충청',
+    children: ['대전', '청주', '천안', '충주'],
+  },
+  {
+    id: 'jeonbuk',
+    label: '전북특별자치도',
+    regionFilter: '전북특별자치도',
+    children: ['전주', '군산', '익산', '남원'],
+  },
+  {
+    id: 'jeonnam',
+    label: '전라남도',
+    children: ['광주', '여수', '순천', '목포'],
+  },
+  {
+    id: 'gyeongsang',
+    label: '경상',
+    children: ['부산', '대구', '경주', '울산', '포항'],
+  },
   { id: 'jeju', label: '제주', children: ['제주시', '서귀포'] },
 ];
 
 const PAGE_INFO = {
   gallery: { title: '갤러리', subtitle: '' },
-  planner: { title: '여행 플래너', subtitle: '챗봇과 함께 나만의 여행 일정을 만들어보세요. 채팅·검색으로 채우고 드래그로 순서·일차를 조정하세요.' },
-  mypage: { title: '마이페이지', subtitle: '스크랩한 장소와 내 여행 일정을 관리하세요.' },
-  contact: { title: '문의하기', subtitle: '궁금한 점이나 불편한 점을 알려주세요.' },
+  planner: {
+    title: '여행 플래너',
+    subtitle:
+      '챗봇과 함께 나만의 여행 일정을 만들어보세요. 채팅·검색으로 채우고 드래그로 순서·일차를 조정하세요.',
+  },
+  mypage: {
+    title: '마이페이지',
+    subtitle: '스크랩한 장소와 내 여행 일정을 관리하세요.',
+  },
+  contact: {
+    title: '문의하기',
+    subtitle: '궁금한 점이나 불편한 점을 알려주세요.',
+  },
 };
 
 function SidebarAccount({ currentUser, onAccountClick, onLoginClick }) {
   if (currentUser) {
     return (
-      <button type="button" className="sidebar-account-card" onClick={onAccountClick} title="계정 메뉴"
-        style={{ cursor: 'pointer', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+      <button
+        type="button"
+        className="sidebar-account-card"
+        onClick={onAccountClick}
+        title="계정 메뉴"
+        style={{
+          cursor: 'pointer',
+          width: '100%',
+          textAlign: 'left',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          fontFamily: 'inherit',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
           {currentUser.picture ? (
-            <img src={currentUser.picture} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid #eee' }} />
+            <img
+              src={currentUser.picture}
+              alt=""
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                flexShrink: 0,
+                border: '1px solid #eee',
+              }}
+            />
           ) : (
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11, color: '#555', flexShrink: 0 }}>
-              {String(currentUser.name || 'U').slice(0, 1).toUpperCase()}
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: '#f0f0f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: 11,
+                color: '#555',
+                flexShrink: 0,
+              }}
+            >
+              {String(currentUser.name || 'U')
+                .slice(0, 1)
+                .toUpperCase()}
             </div>
           )}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser.name || '사용자'}</div>
-            <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser.email}</div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#111',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {currentUser.name || '사용자'}
+            </div>
+            <div
+              style={{
+                fontSize: 10,
+                color: '#888',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {currentUser.email}
+            </div>
           </div>
         </div>
         <span style={{ fontSize: 13, color: '#bbb', flexShrink: 0 }}>⋯</span>
@@ -72,7 +179,11 @@ function SidebarAccount({ currentUser, onAccountClick, onLoginClick }) {
     );
   }
   return (
-    <button type="button" className="sidebar-account-guest" onClick={onLoginClick}>
+    <button
+      type="button"
+      className="sidebar-account-guest"
+      onClick={onLoginClick}
+    >
       <div className="sidebar-account-guest-avatar">👤</div>
       <div className="sidebar-account-guest-text">
         <span className="sidebar-account-guest-name">로그인이 필요해요</span>
@@ -92,15 +203,20 @@ export default function App() {
   const { currentUser, logout } = useAuth();
   const { scrappedIds, toggleScrap: handleToggleScrap } = useScraps();
   const {
-    myTrips, setMyTrips, requireLogin: requireLoginForTrips,
+    myTrips,
+    setMyTrips,
+    requireLogin: requireLoginForTrips,
     onCreateTrip: handleCreateTrip,
     onDeleteTrip: handleDeleteTrip,
     onAddPlaceToTrip: handleAddPlaceToTrip,
     onRemovePlaceFromTrip: handleRemovePlaceFromTrip,
   } = useTrips();
   const {
-    regions, regionMap, galleryDisplayRegions,
-    feedLoading: galleryFeedLoading, searchBusy: gallerySearchBusy,
+    regions,
+    regionMap,
+    galleryDisplayRegions,
+    feedLoading: galleryFeedLoading,
+    searchBusy: gallerySearchBusy,
     handleVectorSearch: handleGalleryVectorSearch,
     handleSidebarRegionClick,
   } = useGalleryFeed();
@@ -125,7 +241,12 @@ export default function App() {
   // 라우터 state로 탭 전환
   useEffect(() => {
     const tab = location.state?.tab;
-    if (tab === 'planner' || tab === 'gallery' || tab === 'mypage' || tab === 'contact') {
+    if (
+      tab === 'planner' ||
+      tab === 'gallery' ||
+      tab === 'mypage' ||
+      tab === 'contact'
+    ) {
       setActiveTab(tab);
       navigate(location.pathname, { replace: true, state: {} });
     }
@@ -145,14 +266,24 @@ export default function App() {
   // 장소 선택 시 insight 로드
   useEffect(() => {
     let m = true;
-    if (!selectedRegion?.id) { setInsightRegion(null); return; }
+    if (!selectedRegion?.id) {
+      setInsightRegion(null);
+      return;
+    }
     setIsInsightLoading(true);
     fetch(`${API_BASE_URL}/api/regions/${selectedRegion.id}/insight`)
       .then(r => (r.ok ? r.json() : null))
-      .then(data => { if (m && data?.region) setInsightRegion(normalizeRegionMediaFields({ ...data.region })); })
+      .then(data => {
+        if (m && data?.region)
+          setInsightRegion(normalizeRegionMediaFields({ ...data.region }));
+      })
       .catch(() => {})
-      .finally(() => { if (m) setIsInsightLoading(false); });
-    return () => { m = false; };
+      .finally(() => {
+        if (m) setIsInsightLoading(false);
+      });
+    return () => {
+      m = false;
+    };
   }, [selectedRegion]);
 
   // 장소 선택 시 이미지·아티클 로드
@@ -174,7 +305,10 @@ export default function App() {
         if (imgRes.ok && !cancelled) {
           const d = await imgRes.json();
           setModalCrawlImages(
-            (d.images || []).map(x => x.url).filter(Boolean).map(u => resolveBackendMediaUrl(u)),
+            (d.images || [])
+              .map(x => x.url)
+              .filter(Boolean)
+              .map(u => resolveBackendMediaUrl(u)),
           );
         }
         if (cancelled) return;
@@ -182,12 +316,22 @@ export default function App() {
         if (cancelled) return;
         if (artRes.ok) {
           const a = await artRes.json();
-          if (!cancelled) setModalArticle({ title: a.title || '', content: a.content || '', blocks: Array.isArray(a.blocks) ? a.blocks : [] });
+          if (!cancelled)
+            setModalArticle({
+              title: a.title || '',
+              content: a.content || '',
+              blocks: Array.isArray(a.blocks) ? a.blocks : [],
+            });
         } else if (!cancelled) setModalArticle(null);
-      } catch { if (!cancelled) setModalArticle(null); }
-      finally { if (!cancelled) setModalArticleLoading(false); }
+      } catch {
+        if (!cancelled) setModalArticle(null);
+      } finally {
+        if (!cancelled) setModalArticleLoading(false);
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRegion?.id]);
 
   // 계정 팝업 외부 클릭 닫기
@@ -203,48 +347,68 @@ export default function App() {
 
   // ── 핸들러 ───────────────────────────────────────────────────────
 
-  const handleSidebarResizePointerDown = useCallback(e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const startX = e.clientX, startW = sidebarWidth;
-    let lastW = startW;
-    const onMove = ev => {
-      lastW = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(startW + ev.clientX - startX)));
-      setSidebarWidth(lastW);
-    };
-    const end = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', end);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(lastW)); } catch {}
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', end);
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-  }, [sidebarWidth]);
+  const handleSidebarResizePointerDown = useCallback(
+    e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX,
+        startW = sidebarWidth;
+      let lastW = startW;
+      const onMove = ev => {
+        lastW = Math.min(
+          SIDEBAR_WIDTH_MAX,
+          Math.max(SIDEBAR_WIDTH_MIN, Math.round(startW + ev.clientX - startX)),
+        );
+        setSidebarWidth(lastW);
+      };
+      const end = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', end);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        try {
+          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(lastW));
+        } catch {}
+      };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', end);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+    },
+    [sidebarWidth],
+  );
 
-  const handleRequestAddToTrip = useCallback(region => setTripSelectRegion(region), []);
+  const handleRequestAddToTrip = useCallback(
+    region => setTripSelectRegion(region),
+    [],
+  );
 
-  const handleAddToSpecificTrip = useCallback(async tripId => {
-    if (!tripSelectRegion) return;
-    const region = tripSelectRegion;
-    try {
-      await handleAddPlaceToTrip(tripId, region);
-      setTripSelectRegion(null);
-      window.alert(`"${region.name}"을(를) 여행에 담았어요!`);
-    } catch (err) {
-      if (err?.message === 'not_logged_in') requireLoginForTrips();
-      else window.alert('여행에 담기에 실패했습니다.');
-    }
-  }, [tripSelectRegion, handleAddPlaceToTrip, requireLoginForTrips]);
+  const handleAddToSpecificTrip = useCallback(
+    async tripId => {
+      if (!tripSelectRegion) return;
+      const region = tripSelectRegion;
+      try {
+        await handleAddPlaceToTrip(tripId, region);
+        setTripSelectRegion(null);
+        window.alert(`"${region.name}"을(를) 여행에 담았어요!`);
+      } catch (err) {
+        if (err?.message === 'not_logged_in') requireLoginForTrips();
+        else window.alert('여행에 담기에 실패했습니다.');
+      }
+    },
+    [tripSelectRegion, handleAddPlaceToTrip, requireLoginForTrips],
+  );
 
   const handleCreateNewTripAndAdd = useCallback(async () => {
     if (!tripSelectRegion) return;
     const region = tripSelectRegion;
-    const tripName = prompt('새 여행 이름을 입력하세요:', `여행 ${new Date().toLocaleDateString('ko-KR')}`);
+    const tripName = prompt(
+      '새 여행 이름을 입력하세요:',
+      `여행 ${new Date().toLocaleDateString('ko-KR')}`,
+    );
     if (!tripName?.trim()) return;
     try {
       const trip = await handleCreateTrip(tripName.trim());
@@ -256,7 +420,12 @@ export default function App() {
       if (err?.message === 'not_logged_in') requireLoginForTrips();
       else window.alert('여행 만들기에 실패했습니다.');
     }
-  }, [tripSelectRegion, handleCreateTrip, handleAddPlaceToTrip, requireLoginForTrips]);
+  }, [
+    tripSelectRegion,
+    handleCreateTrip,
+    handleAddPlaceToTrip,
+    requireLoginForTrips,
+  ]);
 
   const handleLogout = useCallback(() => {
     logout();
@@ -281,50 +450,95 @@ export default function App() {
         {showSidebar && (
           <aside
             className="app-sidebar"
-            style={{ width: effectiveSidebarWidth, minWidth: SIDEBAR_WIDTH_MIN, display: 'flex', flexDirection: 'column' }}
+            style={{
+              width: effectiveSidebarWidth,
+              minWidth: SIDEBAR_WIDTH_MIN,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
           >
-          <div className="sidebar-scroll-area">
-            <div className="sidebar-section-title" style={{ marginTop: 14 }}>지역</div>
-            {REGION_TREE.map(r => (
-              <div key={r.id}>
-                <button className="sidebar-link sidebar-link--region" type="button"
-                  aria-expanded={Boolean(openRegions[r.id])}
-                  onClick={() => setOpenRegions(prev => ({ ...prev, [r.id]: !prev[r.id] }))}>
-                  <span className="sidebar-link-label">{r.label}</span>
-                  <span className={`sidebar-link-chevron${openRegions[r.id] ? ' is-open' : ''}`} aria-hidden>▼</span>
-                </button>
-                {openRegions[r.id] && (
-                  <div className="sidebar-children">
-                    {r.children.map(city => (
-                      <button key={city} className="sidebar-link sidebar-link--child" type="button"
-                        onClick={() => { void handleSidebarRegionClick(city); setActiveTab('gallery'); }}>
-                        {city}
-                      </button>
-                    ))}
-                  </div>
-                )}
+            <div className="sidebar-scroll-area">
+              <div className="sidebar-section-title" style={{ marginTop: 14 }}>
+                지역
               </div>
-            ))}
-            <div className="sidebar-section-title" style={{ marginTop: 14 }}>정보</div>
-            <button type="button" className="sidebar-link" onClick={() => navigate('/')}>서비스 소개</button>
-            <button type="button" className={`sidebar-link${activeTab === 'contact' ? ' active' : ''}`} onClick={() => setActiveTab('contact')}>문의하기</button>
-          </div>
+              {REGION_TREE.map(r => (
+                <div key={r.id}>
+                  <button
+                    className="sidebar-link sidebar-link--region"
+                    type="button"
+                    aria-expanded={Boolean(openRegions[r.id])}
+                    onClick={() =>
+                      setOpenRegions(prev => ({ ...prev, [r.id]: !prev[r.id] }))
+                    }
+                  >
+                    <span className="sidebar-link-label">{r.label}</span>
+                    <span
+                      className={`sidebar-link-chevron${openRegions[r.id] ? ' is-open' : ''}`}
+                      aria-hidden
+                    >
+                      ▼
+                    </span>
+                  </button>
+                  {openRegions[r.id] && (
+                    <div className="sidebar-children">
+                      {r.children.map(city => (
+                        <button
+                          key={city}
+                          className="sidebar-link sidebar-link--child"
+                          type="button"
+                          onClick={() => {
+                            void handleSidebarRegionClick(city);
+                            setActiveTab('gallery');
+                          }}
+                        >
+                          {city}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="sidebar-section-title" style={{ marginTop: 14 }}>
+                정보
+              </div>
+              <button
+                type="button"
+                className="sidebar-link"
+                onClick={() => navigate('/')}
+              >
+                서비스 소개
+              </button>
+              <button
+                type="button"
+                className={`sidebar-link${activeTab === 'contact' ? ' active' : ''}`}
+                onClick={() => setActiveTab('contact')}
+              >
+                문의하기
+              </button>
+            </div>
           </aside>
         )}
 
         <main className="app-shell">
           {activeTab !== 'gallery' && (
-            <div className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}>
+            <div
+              className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}
+            >
               <h1 className="page-title">{currentPage.title}</h1>
-              {currentPage.subtitle && <p className="page-subtitle">{currentPage.subtitle}</p>}
+              {currentPage.subtitle && (
+                <p className="page-subtitle">{currentPage.subtitle}</p>
+              )}
             </div>
           )}
 
           {activeTab === 'gallery' && (
             <>
               <div className="gallery-search-center">
-                <GallerySearchBox onSearch={handleGalleryVectorSearch} busy={gallerySearchBusy}
-                  placeholder="예: 여수 야경 맛집, 조용한 감성 카페, 부산 당일치기" />
+                <GallerySearchBox
+                  onSearch={handleGalleryVectorSearch}
+                  busy={gallerySearchBusy}
+                  placeholder="장소나 분위기를 검색해보세요"
+                />
               </div>
               {gallerySearchBusy && (
                 <div className="gallery-pickle-loading">
@@ -332,9 +546,13 @@ export default function App() {
                   <p className="gallery-pickle-text">딱 맞는 스팟 찾는 중...</p>
                 </div>
               )}
-              {galleryFeedLoading && !gallerySearchBusy && !feedHasDisplayImages(galleryDisplayRegions) && (
-                <p className="gallery-feed-loading" aria-live="polite">장소를 불러오는 중…</p>
-              )}
+              {galleryFeedLoading &&
+                !gallerySearchBusy &&
+                !feedHasDisplayImages(galleryDisplayRegions) && (
+                  <p className="gallery-feed-loading" aria-live="polite">
+                    장소를 불러오는 중…
+                  </p>
+                )}
               {!gallerySearchBusy && (
                 <div className="gallery-results-fade">
                   <RegionGallery
@@ -342,15 +560,24 @@ export default function App() {
                     scrappedIds={scrappedIds}
                     onToggleScrap={handleToggleScrap}
                     onAddToTrip={handleRequestAddToTrip}
-                    onSelect={region => { setSelectedRegion(region); setInsightRegion(null); }}
+                    onSelect={region => {
+                      setSelectedRegion(region);
+                      setInsightRegion(null);
+                    }}
                   />
                 </div>
               )}
             </>
           )}
 
-          <div className={activeTab === 'planner' ? 'trip-planner-mount' : 'trip-planner-mount trip-planner-mount--hidden'}
-            aria-hidden={activeTab !== 'planner'}>
+          <div
+            className={
+              activeTab === 'planner'
+                ? 'trip-planner-mount'
+                : 'trip-planner-mount trip-planner-mount--hidden'
+            }
+            aria-hidden={activeTab !== 'planner'}
+          >
             <MemoTripPlannerPage
               regionMap={regionMap}
               scrappedIds={scrappedIds}
@@ -374,7 +601,10 @@ export default function App() {
               onAddPlaceToTrip={handleAddPlaceToTrip}
               onRemovePlaceFromTrip={handleRemovePlaceFromTrip}
               onToggleScrap={handleToggleScrap}
-              onOpenRegion={region => { setSelectedRegion(region); setInsightRegion(null); }}
+              onOpenRegion={region => {
+                setSelectedRegion(region);
+                setInsightRegion(null);
+              }}
               onAddToTrip={handleRequestAddToTrip}
               regionMap={regionMap}
               regions={regions}
@@ -385,20 +615,32 @@ export default function App() {
             <div className="main-footer-top">
               <div>
                 <div className="main-footer-brand">LocalVibe</div>
-                <div className="main-footer-desc">Discover real local stories with AI.</div>
+                <div className="main-footer-desc">
+                  Discover real local stories with AI.
+                </div>
               </div>
               <div className="main-footer-links">
                 <span>Core Features</span>
                 <span>Pro Experience</span>
-                <span role="button" tabIndex={0}
+                <span
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setActiveTab('contact')}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab('contact'); } }}>
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setActiveTab('contact');
+                    }
+                  }}
+                >
                   Contact
                 </span>
                 <span>Join</span>
               </div>
             </div>
-            <div className="main-footer-bottom">© {new Date().getFullYear()} LocalVibe. All rights reserved.</div>
+            <div className="main-footer-bottom">
+              © {new Date().getFullYear()} LocalVibe. All rights reserved.
+            </div>
           </footer>
         </main>
       </div>
@@ -413,8 +655,15 @@ export default function App() {
       )}
 
       <RegionModal
-        region={activeTab === 'gallery' || activeTab === 'mypage' ? insightRegion || selectedRegion : null}
-        isLoading={(activeTab === 'gallery' || activeTab === 'mypage') && isInsightLoading}
+        region={
+          activeTab === 'gallery' || activeTab === 'mypage'
+            ? insightRegion || selectedRegion
+            : null
+        }
+        isLoading={
+          (activeTab === 'gallery' || activeTab === 'mypage') &&
+          isInsightLoading
+        }
         apiBaseUrl={API_BASE_URL}
         crawlImageUrls={modalCrawlImages}
         article={modalArticle}
