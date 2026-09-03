@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import {
   CARD_PLACEHOLDER_SVG,
@@ -17,7 +18,17 @@ export default function RegionGallery({ regions, onSelect }) {
       <div className="region-grid">
         {regions.map(region => {
           return (
-            <article key={region.id} className="region-card">
+            <motion.article
+              key={region.id}
+              className="region-card"
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.15 }}
+              transition={{
+                duration: 0.55,
+                ease: 'easeOut',
+              }}
+            >
               <div
                 className="region-preview"
                 role="button"
@@ -55,7 +66,7 @@ export default function RegionGallery({ regions, onSelect }) {
                   Read More
                 </button>
               </div>
-            </article>
+            </motion.article>
           );
         })}
       </div>
