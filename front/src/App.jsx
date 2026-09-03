@@ -43,7 +43,7 @@ const REGION_TREE = [
 ];
 
 const PAGE_INFO = {
-  gallery: { title: '갤러리', subtitle: 'AI 기반으로 숨은 로컬 스팟을 찾아드려요.' },
+  gallery: { title: '갤러리', subtitle: '' },
   planner: { title: '여행 플래너', subtitle: '챗봇과 함께 나만의 여행 일정을 만들어보세요. 채팅·검색으로 채우고 드래그로 순서·일차를 조정하세요.' },
   mypage: { title: '마이페이지', subtitle: '스크랩한 장소와 내 여행 일정을 관리하세요.' },
   contact: { title: '문의하기', subtitle: '궁금한 점이나 불편한 점을 알려주세요.' },
@@ -313,10 +313,12 @@ export default function App() {
         )}
 
         <main className="app-shell">
-          <div className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}>
-            <h1 className="page-title">{currentPage.title}</h1>
-            <p className="page-subtitle">{currentPage.subtitle}</p>
-          </div>
+          {activeTab !== 'gallery' && (
+            <div className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}>
+              <h1 className="page-title">{currentPage.title}</h1>
+              {currentPage.subtitle && <p className="page-subtitle">{currentPage.subtitle}</p>}
+            </div>
+          )}
 
           {activeTab === 'gallery' && (
             <>
