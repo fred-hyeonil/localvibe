@@ -64,7 +64,6 @@ export default function CommonHeader({ onTabChange }) {
       <div className="common-header-pill">
         {/* 로고 */}
         <button type="button" className="common-header-logo" onClick={() => navigate("/")}>
-          <span className="common-header-logo-icon">🥒</span>
           <span className="common-header-logo-text">LocalVibe</span>
         </button>
 

@@ -269,7 +269,7 @@ export default function App() {
     [regions, scrappedIds],
   );
   const currentPage = PAGE_INFO[activeTab] || PAGE_INFO.gallery;
-  const showSidebar = (activeTab === 'gallery' || activeTab === 'contact') && sidebarOpen;
+  const showSidebar = activeTab === 'contact' && sidebarOpen;
   const effectiveSidebarWidth = showSidebar ? sidebarWidth : 0;
 
   // ── JSX ──────────────────────────────────────────────────────────
@@ -278,10 +278,11 @@ export default function App() {
       <CommonHeader onTabChange={setActiveTab} />
 
       <div className="app-layout">
-        <aside
-          className={`app-sidebar${showSidebar ? '' : ' collapsed'}`}
-          style={{ width: effectiveSidebarWidth, minWidth: showSidebar ? SIDEBAR_WIDTH_MIN : 0, display: 'flex', flexDirection: 'column' }}
-        >
+        {showSidebar && (
+          <aside
+            className="app-sidebar"
+            style={{ width: effectiveSidebarWidth, minWidth: SIDEBAR_WIDTH_MIN, display: 'flex', flexDirection: 'column' }}
+          >
           <div className="sidebar-scroll-area">
             <div className="sidebar-section-title" style={{ marginTop: 14 }}>지역</div>
             {REGION_TREE.map(r => (
@@ -308,7 +309,8 @@ export default function App() {
             <button type="button" className="sidebar-link" onClick={() => navigate('/')}>서비스 소개</button>
             <button type="button" className={`sidebar-link${activeTab === 'contact' ? ' active' : ''}`} onClick={() => setActiveTab('contact')}>문의하기</button>
           </div>
-        </aside>
+          </aside>
+        )}
 
         <main className="app-shell">
           <div className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}>
