@@ -195,6 +195,26 @@ function SidebarAccount({ currentUser, onAccountClick, onLoginClick }) {
 
 const MemoTripPlannerPage = memo(TripPlannerPage);
 
+function GallerySearchSkeleton() {
+  return (
+    <section className="gallery-scroll-area gallery-skeleton-area" aria-label="검색 결과 불러오는 중">
+      <div className="region-grid">
+        {Array.from({ length: 6 }, (_, index) => (
+          <article className="gallery-skeleton-card" key={index}>
+            <div className="gallery-skeleton-image" />
+            <div className="gallery-skeleton-content">
+              <div className="gallery-skeleton-title" />
+              <div className="gallery-skeleton-summary" />
+              <div className="gallery-skeleton-summary gallery-skeleton-summary-short" />
+              <div className="gallery-skeleton-link" />
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -519,8 +539,16 @@ export default function App() {
           </aside>
         )}
 
-        <main className="app-shell">
-          {activeTab !== 'gallery' && (
+        <main
+          className={`app-shell${
+            activeTab === 'mypage' || activeTab === 'planner'
+              ? ' app-shell--mypage'
+              : ''
+          }`}
+        >
+          {activeTab !== 'gallery' &&
+            activeTab !== 'mypage' &&
+            activeTab !== 'planner' && (
             <div
               className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}
             >
@@ -541,10 +569,7 @@ export default function App() {
                 />
               </div>
               {gallerySearchBusy && (
-                <div className="gallery-pickle-loading">
-                  <span className="gallery-pickle-emoji">🥒</span>
-                  <p className="gallery-pickle-text">딱 맞는 스팟 찾는 중...</p>
-                </div>
+                <GallerySearchSkeleton />
               )}
               {galleryFeedLoading &&
                 !gallerySearchBusy &&

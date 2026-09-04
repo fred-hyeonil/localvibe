@@ -534,47 +534,47 @@ function TripPlannerPage({
         <div>
           <h2>여행 플래너</h2>
         </div>
-        <div className="trip-planner-stats">
-          {tripDuration ? (
-            <span className="trip-planner-chip">
-              {tripDuration.nights}박 {tripDuration.days}일
-              {Number.isFinite(maxLocations)
-                ? ` · ${roadmapLocations.length}/${maxLocations}곳`
-                : ` · ${roadmapLocations.length}곳`}
-            </span>
-          ) : (
-            <span className="trip-planner-chip">
-              {roadmapLocations.length > 0
-                ? `${roadmapLocations.length}곳`
-                : '일정 없음'}
-            </span>
-          )}
-          {roadmapLocations.length > 0 ? (
-            <>
-              <button
-                type="button"
-                className="trip-planner-save-btn"
-                onClick={() => {
-                  if (!currentUser) {
-                    onRequireLogin?.();
-                    return;
-                  }
-                  setSaveModalOpen(true);
-                }}
-              >
-                마이페이지에 저장
-              </button>
-              <button
-                type="button"
-                className="trip-planner-clear-btn"
-                onClick={handleClearRoadmap}
-                title="일정 전체 삭제"
-              >
-                전체 삭제
-              </button>
-            </>
-          ) : null}
-        </div>
+        {(tripDuration || roadmapLocations.length > 0) && (
+          <div className="trip-planner-stats">
+            {tripDuration ? (
+              <span className="trip-planner-chip">
+                {tripDuration.nights}박 {tripDuration.days}일
+                {Number.isFinite(maxLocations)
+                  ? ` · ${roadmapLocations.length}/${maxLocations}곳`
+                  : ` · ${roadmapLocations.length}곳`}
+              </span>
+            ) : (
+              <span className="trip-planner-chip">
+                {roadmapLocations.length}곳
+              </span>
+            )}
+            {roadmapLocations.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  className="trip-planner-save-btn"
+                  onClick={() => {
+                    if (!currentUser) {
+                      onRequireLogin?.();
+                      return;
+                    }
+                    setSaveModalOpen(true);
+                  }}
+                >
+                  마이페이지에 저장
+                </button>
+                <button
+                  type="button"
+                  className="trip-planner-clear-btn"
+                  onClick={handleClearRoadmap}
+                  title="일정 전체 삭제"
+                >
+                  전체 삭제
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div className="trip-planner-main">

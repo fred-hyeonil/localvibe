@@ -102,14 +102,14 @@ export default function MyPage({
   const searchQueryTrimmed = searchQuery.trim();
 
   return (
-    <section style={{ width: '100%' }}>
+    <section className="mypage-page-content" style={{ width: '100%' }}>
       {/* 탭 */}
       <div className="app-tabs" style={{ marginTop: 16 }}>
         <button className={`app-tab${tab === 'scraps' ? ' active' : ''}`} onClick={() => setTab('scraps')} type="button">
           ♥ 스크랩한 장소 ({scrappedRegions.length})
         </button>
         <button className={`app-tab${tab === 'trips' ? ' active' : ''}`} onClick={() => setTab('trips')} type="button">
-          ✈ 내 여행 일정 ({myTrips.length})
+          ✈ 여행 일정 ({myTrips.length})
         </button>
       </div>
 
@@ -148,10 +148,9 @@ export default function MyPage({
 
       {/* ── 여행 일정 탭 ── */}
       {tab === 'trips' && (
-        <div style={{ marginTop: 20 }}>
+        <div className="mypage-trips-content" style={{ marginTop: 20 }}>
           {/* 여행 목록 + 새 여행 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111' }}>내 여행 목록</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 16 }}>
             <button type="button" className="mypage-create-btn" onClick={() => setShowNewTripForm(v => !v)}>+ 새 여행 만들기</button>
           </div>
 
