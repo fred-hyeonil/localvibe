@@ -260,6 +260,7 @@ export default function App() {
   const [accountPopupOpen, setAccountPopupOpen] = useState(false);
   const [tripSelectRegion, setTripSelectRegion] = useState(null);
   const accountAreaRef = useRef(null);
+  const shellRef = useRef(null);
 
   // ── Effects ──────────────────────────────────────────────────────
 
@@ -277,6 +278,16 @@ export default function App() {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
+
+  // 탭 전환 시 콘텐츠 영역에 등장 애니메이션 재생.
+  // 플래너는 계속 마운트해 두는 구조라 리마운트(key) 대신 클래스를 다시 붙여 재생한다.
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    el.classList.remove('app-shell--switching');
+    void el.offsetWidth; // 애니메이션 재시작을 위한 강제 reflow
+    el.classList.add('app-shell--switching');
+  }, [activeTab]);
 
   // 탭 전환 시 모달 초기화
   useEffect(() => {
@@ -550,6 +561,7 @@ export default function App() {
         )}
 
         <main
+          ref={shellRef}
           className={`app-shell${
             activeTab === 'mypage' ||
             activeTab === 'planner' ||
