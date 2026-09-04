@@ -187,3 +187,90 @@ export const COMMUNITY_RULES = [
   '사진 속 타인의 얼굴은 가려주세요.',
   '서로의 취향을 존중하는 댓글을 부탁드립니다.',
 ];
+
+/**
+ * 마이페이지 '내 활동'용 목업.
+ * 로그인 사용자가 쓴 글·댓글이며, 백엔드가 붙으면 /api/me/... 응답으로 대체됩니다.
+ */
+export const COMMUNITY_MY_POSTS = [
+  {
+    id: 901,
+    boardId: 'gwangju-nam',
+    title: '양림동 카페 골목, 주차는 어디에 하면 좋을까요',
+    body: '주말에 갔다가 주차 자리를 못 찾아서 20분을 돌았습니다. 근처에 공영주차장이 있다고 들었는데 어디가 제일 가까운지 아시는 분 계실까요?',
+    place: '양림동',
+    createdAt: '2일 전',
+    votes: 12,
+    comments: 5,
+    anonymous: false,
+  },
+  {
+    id: 902,
+    boardId: 'damyang',
+    title: '죽녹원 평일 오후에 다녀왔습니다',
+    body: '사람이 거의 없어서 대나무 소리만 들렸어요. 입구에서 정상까지 천천히 걸어 한 시간 정도 걸렸습니다.',
+    place: '죽녹원',
+    createdAt: '1주 전',
+    votes: 34,
+    comments: 8,
+    anonymous: true,
+  },
+];
+
+export const COMMUNITY_MY_COMMENTS = [
+  {
+    id: 951,
+    postId: 2,
+    postTitle: '여수 1박 2일인데 돌산공원 야경 vs 오동도 중 하나만 고른다면?',
+    body: '저도 돌산공원에 한 표요. 케이블카는 줄이 길 수 있으니 해 지기 전에 미리 올라가세요.',
+    createdAt: '4시간 전',
+    votes: 7,
+    anonymous: false,
+  },
+  {
+    id: 952,
+    postId: 5,
+    postTitle: '순천만 습지 갈대밭 탐방로 일부 보수공사 중입니다',
+    body: '지난 주말에도 같은 구간이 막혀 있었어요. 정보 감사합니다.',
+    createdAt: '1일 전',
+    votes: 3,
+    anonymous: true,
+  },
+  {
+    id: 953,
+    postId: 4,
+    postTitle: '무등산 첫 등산이면 증심사 코스로 가세요',
+    body: '증심사 코스 동의합니다. 다만 여름엔 물을 넉넉히 챙기세요.',
+    createdAt: '3일 전',
+    votes: 15,
+    anonymous: false,
+  },
+];
+
+/** 마이페이지 '저장한 글' 목업 — 커뮤니티의 저장 버튼으로 담은 글. */
+export const COMMUNITY_SAVED_POSTS = [
+  {
+    id: 3,
+    boardId: 'damyang',
+    title: '메타세쿼이아길 초여름 색감 미쳤습니다 (사진 몇 장)',
+    body: '해질녘 한 시간 전쯤이 제일 예뻐요. 입구 쪽보다 중간 지점에서 뒤돌아 찍는 구도를 추천합니다.',
+    place: '메타세쿼이아 랜드',
+    author: 'film_daily',
+    createdAt: '9시간 전',
+    votes: 412,
+    comments: 27,
+    savedAt: '어제 저장',
+  },
+  {
+    id: 5,
+    boardId: 'suncheon',
+    title: '순천만 습지 갈대밭 탐방로 일부 보수공사 중입니다',
+    body: '무진교 건너편 데크 일부가 통제되어 있었습니다. 주차장은 오전 11시 넘으면 꽉 찹니다.',
+    place: '순천만 국가정원',
+    author: 'wetland_notes',
+    createdAt: '1일 전',
+    votes: 305,
+    comments: 18,
+    savedAt: '3일 전 저장',
+  },
+];

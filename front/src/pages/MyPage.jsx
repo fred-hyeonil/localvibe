@@ -9,6 +9,16 @@ import {
   inferRegionHintsFromTripName,
   searchPlacesForTrip,
 } from '../utils/tripPlaceSearch';
+import LineIcon from '../components/ui/LineIcon';
+import {
+  COMMUNITY_BOARDS,
+  COMMUNITY_MY_COMMENTS,
+  COMMUNITY_MY_POSTS,
+  COMMUNITY_SAVED_POSTS,
+} from '../data/communityMock';
+
+const boardName = id =>
+  COMMUNITY_BOARDS.find(b => b.id === id)?.name || '전체';
 
 export default function MyPage({
   scrappedRegions = [],
@@ -19,6 +29,8 @@ export default function MyPage({
   onRemovePlaceFromTrip,
   onToggleScrap,
   onOpenRegion,
+  onGoCommunity,
+  currentUser = null,
   regionMap = null,
   regions = [],
   isLoggedIn = false,
@@ -117,6 +129,51 @@ export default function MyPage({
 
   return (
     <section className="mypage-page-content" style={{ width: '100%' }}>
+      {/* 프로필 헤더 */}
+      <header className="mypage-profile">
+        {currentUser?.picture ? (
+          <img
+            src={currentUser.picture}
+            alt=""
+            className="mypage-profile-avatar"
+          />
+        ) : (
+          <div className="mypage-profile-avatar mypage-profile-avatar--fallback">
+            {String(currentUser?.name || 'U').slice(0, 1).toUpperCase()}
+          </div>
+        )}
+        <div className="mypage-profile-text">
+          <h2 className="mypage-profile-name">
+            {currentUser?.name || (isLoggedIn ? '사용자' : '로그인이 필요해요')}
+          </h2>
+          <p className="mypage-profile-email">
+            {currentUser?.email || '로그인하면 스크랩·일정이 저장됩니다.'}
+          </p>
+        </div>
+        <dl className="mypage-profile-stats">
+          <div>
+            <dt>스크랩</dt>
+            <dd>{scrappedRegions.length}</dd>
+          </div>
+          <div>
+            <dt>일정</dt>
+            <dd>{myTrips.length}</dd>
+          </div>
+          <div>
+            <dt>작성글</dt>
+            <dd>{COMMUNITY_MY_POSTS.length}</dd>
+          </div>
+          <div>
+            <dt>저장글</dt>
+            <dd>{COMMUNITY_SAVED_POSTS.length}</dd>
+          </div>
+          <div>
+            <dt>댓글</dt>
+            <dd>{COMMUNITY_MY_COMMENTS.length}</dd>
+          </div>
+        </dl>
+      </header>
+
       {/* 탭 */}
       <div className="app-tabs" style={{ marginTop: 16 }}>
         <button
@@ -124,16 +181,176 @@ export default function MyPage({
           onClick={() => setTab('scraps')}
           type="button"
         >
-          ♥ 스크랩한 장소 ({scrappedRegions.length})
+          <LineIcon name="heart" className="app-tab-icon" /> 스크랩한 장소
         </button>
         <button
           className={`app-tab${tab === 'trips' ? ' active' : ''}`}
           onClick={() => setTab('trips')}
           type="button"
         >
-          ✈ 여행 일정 ({myTrips.length})
+          <LineIcon name="plane" className="app-tab-icon" /> 여행 일정
+        </button>
+        <button
+          className={`app-tab${tab === 'posts' ? ' active' : ''}`}
+          onClick={() => setTab('posts')}
+          type="button"
+        >
+          <LineIcon name="pencil" className="app-tab-icon" /> 작성글
+        </button>
+        <button
+          className={`app-tab${tab === 'saved' ? ' active' : ''}`}
+          onClick={() => setTab('saved')}
+          type="button"
+        >
+          <LineIcon name="save" className="app-tab-icon" /> 저장한 글
+        </button>
+        <button
+          className={`app-tab${tab === 'comments' ? ' active' : ''}`}
+          onClick={() => setTab('comments')}
+          type="button"
+        >
+          <LineIcon name="comment" className="app-tab-icon" /> 작성 댓글
         </button>
       </div>
+
+      {/* ── 저장한 글 탭 ── */}
+      {tab === 'saved' && (
+        !isLoggedIn ? (
+          <div className="mypage-empty">
+            <p>저장한 글은 로그인 후 확인할 수 있어요.</p>
+          </div>
+        ) : COMMUNITY_SAVED_POSTS.length === 0 ? (
+          <div className="mypage-empty">
+            <p style={{ margin: 0 }}>아직 저장한 글이 없어요.</p>
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#aaa' }}>
+              커뮤니티 글에서 저장을 누르면 여기에 모여요.
+            </p>
+          </div>
+        ) : (
+          <ul className="mypage-activity-list">
+            {COMMUNITY_SAVED_POSTS.map(post => (
+              <li key={post.id}>
+                <button
+                  type="button"
+                  className="mypage-activity"
+                  onClick={() => onGoCommunity?.()}
+                >
+                  <div className="mypage-activity-meta">
+                    <span className="mypage-activity-board">
+                      {boardName(post.boardId)}
+                    </span>
+                    <span className="mypage-activity-sep">·</span>
+                    <span>u/{post.author}</span>
+                    <span className="mypage-activity-sep">·</span>
+                    <span>{post.createdAt}</span>
+                    <span className="mypage-activity-tag">{post.savedAt}</span>
+                  </div>
+                  <p className="mypage-activity-title">{post.title}</p>
+                  <p className="mypage-activity-body">{post.body}</p>
+                  <div className="mypage-activity-stats">
+                    <span>▲ {post.votes}</span>
+                    <span className="mypage-activity-sep">|</span>
+                    <span>댓글 {post.comments}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+
+      {/* ── 작성글 탭 ── */}
+      {tab === 'posts' && (
+        !isLoggedIn ? (
+          <div className="mypage-empty">
+            <p>작성한 글은 로그인 후 확인할 수 있어요.</p>
+          </div>
+        ) : COMMUNITY_MY_POSTS.length === 0 ? (
+          <div className="mypage-empty">
+            <p style={{ margin: 0 }}>아직 작성한 글이 없어요.</p>
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#aaa' }}>
+              커뮤니티에서 다녀온 장소를 공유해보세요.
+            </p>
+          </div>
+        ) : (
+          <ul className="mypage-activity-list">
+            {COMMUNITY_MY_POSTS.map(post => (
+              <li key={post.id}>
+                <button
+                  type="button"
+                  className="mypage-activity"
+                  onClick={() => onGoCommunity?.()}
+                >
+                  <div className="mypage-activity-meta">
+                    <span className="mypage-activity-board">
+                      {boardName(post.boardId)}
+                    </span>
+                    <span className="mypage-activity-sep">·</span>
+                    <span>{post.createdAt}</span>
+                    {post.place && (
+                      <>
+                        <span className="mypage-activity-sep">|</span>
+                        <span>{post.place}</span>
+                      </>
+                    )}
+                    {post.anonymous && (
+                      <span className="mypage-activity-tag">익명</span>
+                    )}
+                  </div>
+                  <p className="mypage-activity-title">{post.title}</p>
+                  <p className="mypage-activity-body">{post.body}</p>
+                  <div className="mypage-activity-stats">
+                    <span>▲ {post.votes}</span>
+                    <span className="mypage-activity-sep">|</span>
+                    <span>댓글 {post.comments}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+
+      {/* ── 작성 댓글 탭 ── */}
+      {tab === 'comments' && (
+        !isLoggedIn ? (
+          <div className="mypage-empty">
+            <p>작성한 댓글은 로그인 후 확인할 수 있어요.</p>
+          </div>
+        ) : COMMUNITY_MY_COMMENTS.length === 0 ? (
+          <div className="mypage-empty">
+            <p style={{ margin: 0 }}>아직 작성한 댓글이 없어요.</p>
+          </div>
+        ) : (
+          <ul className="mypage-activity-list">
+            {COMMUNITY_MY_COMMENTS.map(comment => (
+              <li key={comment.id}>
+                <button
+                  type="button"
+                  className="mypage-activity"
+                  onClick={() => onGoCommunity?.()}
+                >
+                  <div className="mypage-activity-meta">
+                    <span>{comment.createdAt}</span>
+                    {comment.anonymous && (
+                      <span className="mypage-activity-tag">익명</span>
+                    )}
+                  </div>
+                  <p className="mypage-activity-body mypage-activity-comment">
+                    {comment.body}
+                  </p>
+                  <p className="mypage-activity-origin">
+                    원글 · {comment.postTitle}
+                  </p>
+                  <div className="mypage-activity-stats">
+                    <span>▲ {comment.votes}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
 
       {/* ── 스크랩 탭 ── */}
       {tab === 'scraps' && (

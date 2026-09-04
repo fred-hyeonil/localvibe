@@ -657,6 +657,8 @@ export default function App() {
                 setSelectedRegion(region);
                 setInsightRegion(null);
               }}
+              onGoCommunity={() => setActiveTab('community')}
+              currentUser={currentUser}
               onAddToTrip={handleRequestAddToTrip}
               regionMap={regionMap}
               regions={regions}

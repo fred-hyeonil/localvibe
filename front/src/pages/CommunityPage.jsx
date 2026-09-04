@@ -7,6 +7,7 @@ import {
   COMMUNITY_SORTS,
   COMMUNITY_TRENDING,
 } from '../data/communityMock';
+import LineIcon from '../components/ui/LineIcon';
 
 /**
  * 커뮤니티 — 광주·전남 장소 이야기를 쓰는 공간.
@@ -14,32 +15,24 @@ import {
  * (투표·글쓰기·댓글은 로컬 state에만 반영되고 서버로 전송되지 않습니다.)
  */
 
+/** 댓글 입력 글자 수 상한. */
+const COMMENT_MAX = 500;
+
+/** 글 하나에 첨부할 수 있는 사진 수. */
+const PHOTO_MAX = 5;
+
+/** 내용 입력 안내 — 커뮤니티 규칙을 그대로 옮겨 적습니다. */
+const BODY_PLACEHOLDER = [
+  '방문 시기, 가는 방법, 좋았던 점을 적어주세요.',
+  '',
+  ...COMMUNITY_RULES.map(rule => `· ${rule}`),
+].join('\n');
+
 const boardName = id =>
   COMMUNITY_BOARDS.find(b => b.id === id)?.name || '전체';
 
-/** 액션 줄 아이콘 — 선(stroke)만 쓰는 24px 그리드 기준. */
-function Icon({ name }) {
-  const paths = {
-    comment: 'M21 11.5a8.4 8.4 0 0 1-9 8.4 9.6 9.6 0 0 1-2.6-.4L3 21l1.6-4.7A8.2 8.2 0 0 1 3.6 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8.4 8.4z',
-    share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 15V3m0 0L8 7m4-4 4 4',
-    save: 'M6 4.5h12a1 1 0 0 1 1 1V20l-7-4-7 4V5.5a1 1 0 0 1 1-1z',
-    report: 'M5 21V4.5m0 0h11l-2 3.5 2 3.5H5',
-  };
-  return (
-    <svg
-      className="cm-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name]} />
-    </svg>
-  );
-}
+/** 익명 글은 아이디 대신 '익명'으로 표시합니다. */
+const authorLabel = post => (post.anonymous ? '익명' : `u/${post.author}`);
 
 /** 하단 액션 줄에 들어가는 알약형 투표 버튼. */
 function VotePill({ votes, myVote, onVote }) {
@@ -75,8 +68,11 @@ function VotePill({ votes, myVote, onVote }) {
   );
 }
 
-/** 정렬 기준 드롭다운 — 바깥 클릭 시 닫힙니다. */
-function SortDropdown({ value, onChange }) {
+/**
+ * 목록에서 하나를 고르는 드롭다운 — 바깥 클릭 시 닫힙니다.
+ * options: [{ id, label }]
+ */
+function Dropdown({ value, options, onChange, className = '', ariaLabel }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -89,14 +85,15 @@ function SortDropdown({ value, onChange }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const current = COMMUNITY_SORTS.find(s => s.id === value);
+  const current = options.find(o => o.id === value);
 
   return (
-    <div className="cm-dropdown" ref={ref}>
+    <div className={`cm-dropdown ${className}`.trim()} ref={ref}>
       <button
         type="button"
         className={`cm-dropdown-trigger${open ? ' open' : ''}`}
         onClick={() => setOpen(o => !o)}
+        aria-label={ariaLabel}
       >
         {current?.label}
         <span className="cm-caret" aria-hidden="true">
@@ -105,17 +102,17 @@ function SortDropdown({ value, onChange }) {
       </button>
       {open && (
         <ul className="cm-dropdown-menu">
-          {COMMUNITY_SORTS.map(s => (
-            <li key={s.id}>
+          {options.map(o => (
+            <li key={o.id}>
               <button
                 type="button"
-                className={`cm-dropdown-item${value === s.id ? ' active' : ''}`}
+                className={`cm-dropdown-item${value === o.id ? ' active' : ''}`}
                 onClick={() => {
-                  onChange(s.id);
+                  onChange(o.id);
                   setOpen(false);
                 }}
               >
-                {s.label}
+                {o.label}
               </button>
             </li>
           ))}
@@ -125,6 +122,12 @@ function SortDropdown({ value, onChange }) {
   );
 }
 
+/** 게시판 선택용 옵션 (전체 제외). */
+const BOARD_OPTIONS = COMMUNITY_BOARDS.filter(b => b.id !== 'all').map(b => ({
+  id: b.id,
+  label: b.name,
+}));
+
 function PostCard({ post, onVote, onOpen }) {
   return (
     <article className="cm-post" onClick={() => onOpen(post)}>
@@ -132,7 +135,7 @@ function PostCard({ post, onVote, onOpen }) {
         <div className="cm-post-meta">
           <span className="cm-board-chip">{boardName(post.boardId)}</span>
           <span className="cm-dot">·</span>
-          <span className="cm-post-author">u/{post.author}</span>
+          <span className="cm-post-author">{authorLabel(post)}</span>
           <span className="cm-dot">·</span>
           <span>{post.createdAt}</span>
           {post.place && (
@@ -152,15 +155,15 @@ function PostCard({ post, onVote, onOpen }) {
           />
           <span className="cm-bar">|</span>
           <span className="cm-post-action">
-            <Icon name="comment" /> 댓글 {post.comments}
+            <LineIcon name="comment" /> 댓글 {post.comments}
           </span>
           <span className="cm-bar">|</span>
           <span className="cm-post-action">
-            <Icon name="share" /> 공유
+            <LineIcon name="share" /> 공유
           </span>
           <span className="cm-bar">|</span>
           <span className="cm-post-action">
-            <Icon name="save" /> 저장
+            <LineIcon name="save" /> 저장
           </span>
         </div>
       </div>
@@ -169,28 +172,50 @@ function PostCard({ post, onVote, onOpen }) {
 }
 
 function Comment({ comment, depth = 0 }) {
+  const replies = comment.replies || [];
+  const [showReplies, setShowReplies] = useState(true);
+
   return (
     <li className="cm-comment" style={{ marginLeft: depth ? 24 : 0 }}>
       <div className="cm-comment-head">
         <span className="cm-comment-avatar" aria-hidden="true">
-          {comment.author.slice(0, 1).toUpperCase()}
+          {comment.anonymous ? '?' : comment.author.slice(0, 1).toUpperCase()}
         </span>
-        <span className="cm-post-author">u/{comment.author}</span>
+        <span className="cm-post-author">{authorLabel(comment)}</span>
         <span className="cm-dot">·</span>
         <span>{comment.createdAt}</span>
       </div>
       <p className="cm-comment-body">{comment.body}</p>
       <div className="cm-comment-actions">
         <span className="cm-post-action">▲ {comment.votes}</span>
+        <span className="cm-bar">|</span>
         <span className="cm-post-action">답글</span>
+        <span className="cm-bar">|</span>
         <span className="cm-post-action">공유</span>
       </div>
-      {comment.replies?.length > 0 && (
-        <ul className="cm-comment-list cm-comment-list--nested">
-          {comment.replies.map(reply => (
-            <Comment key={reply.id} comment={reply} depth={depth + 1} />
-          ))}
-        </ul>
+      {replies.length > 0 && (
+        <>
+          {showReplies && (
+            <ul className="cm-comment-list cm-comment-list--nested">
+              {replies.map(reply => (
+                <Comment key={reply.id} comment={reply} depth={depth + 1} />
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            className="cm-replies-toggle"
+            onClick={() => setShowReplies(v => !v)}
+          >
+            {showReplies ? '답글 숨기기' : `답글 ${replies.length}개`}
+            <span
+              className={`cm-caret${showReplies ? ' up' : ''}`}
+              aria-hidden="true"
+            >
+              ⌄
+            </span>
+          </button>
+        </>
       )}
     </li>
   );
@@ -198,6 +223,8 @@ function Comment({ comment, depth = 0 }) {
 
 function PostDetail({ post, onVote, onBack }) {
   const comments = COMMUNITY_COMMENTS[post.id] || [];
+  const [draft, setDraft] = useState('');
+  const [anonymousComment, setAnonymousComment] = useState(false);
   return (
     <div className="cm-detail">
       <button type="button" className="cm-back-btn" onClick={onBack}>
@@ -208,23 +235,17 @@ function PostDetail({ post, onVote, onBack }) {
           <div className="cm-post-meta">
             <span className="cm-board-chip">{boardName(post.boardId)}</span>
             <span className="cm-dot">·</span>
-            <span className="cm-post-author">u/{post.author}</span>
+            <span className="cm-post-author">{authorLabel(post)}</span>
             <span className="cm-dot">·</span>
             <span>{post.createdAt}</span>
+            {post.place && (
+              <>
+                <span className="cm-bar">|</span>
+                <span className="cm-meta-place">{post.place}</span>
+              </>
+            )}
           </div>
           <h2 className="cm-detail-title">{post.title}</h2>
-          {post.place && (
-            <div className="cm-place-card">
-              <span className="cm-place-pin" aria-hidden="true">📍</span>
-              <div>
-                <strong>{post.place}</strong>
-                <span>{boardName(post.boardId)}</span>
-              </div>
-              <button type="button" className="cm-place-link">
-                장소 보기
-              </button>
-            </div>
-          )}
           <p className="cm-detail-text">{post.body}</p>
           <div className="cm-post-actions">
             <VotePill
@@ -234,34 +255,61 @@ function PostDetail({ post, onVote, onBack }) {
             />
             <span className="cm-bar">|</span>
             <span className="cm-post-action">
-              <Icon name="comment" /> 댓글 {post.comments}
+              <LineIcon name="comment" /> 댓글 {post.comments}
             </span>
             <span className="cm-bar">|</span>
             <span className="cm-post-action">
-              <Icon name="share" /> 공유
+              <LineIcon name="share" /> 공유
             </span>
             <span className="cm-bar">|</span>
             <span className="cm-post-action">
-              <Icon name="save" /> 저장
+              <LineIcon name="save" /> 저장
             </span>
             <span className="cm-bar">|</span>
             <span className="cm-post-action">
-              <Icon name="report" /> 신고
+              <LineIcon name="report" /> 신고
             </span>
           </div>
         </div>
       </article>
 
       <section className="cm-comment-section">
-        <textarea
-          className="cm-comment-input"
-          placeholder="댓글을 남겨보세요"
-          rows={3}
-        />
-        <div className="cm-comment-input-actions">
-          <button type="button" className="cm-btn cm-btn--primary">
-            댓글 등록
-          </button>
+        {/* 카운터와 전송 버튼은 입력창 안쪽 우측 하단에 겹쳐둡니다. */}
+        <div className="cm-comment-box">
+          <textarea
+            className="cm-comment-input"
+            placeholder="댓글을 남겨보세요"
+            rows={3}
+            maxLength={COMMENT_MAX}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+          />
+          <div className="cm-comment-input-actions">
+            <label className="cm-switch cm-switch--sm">
+              <input
+                type="checkbox"
+                checked={anonymousComment}
+                onChange={e => setAnonymousComment(e.target.checked)}
+              />
+              <span className="cm-switch-track" aria-hidden="true">
+                <span className="cm-switch-thumb" />
+              </span>
+              <span className="cm-switch-label">익명</span>
+            </label>
+            <span className="cm-comment-count">
+              {draft.length}/{COMMENT_MAX}
+            </span>
+            <button
+              type="button"
+              className="cm-send-btn"
+              disabled={!draft.trim()}
+              aria-label="댓글 등록"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M3.6 4.3 20.5 11.5c.7.3.7 1.3 0 1.6L3.6 20.3c-.7.3-1.4-.4-1.1-1.1l2.3-6.1c.1-.2.3-.4.6-.4l7.3-.6c.4 0 .4-.6 0-.6l-7.3-.6c-.3 0-.5-.2-.6-.4L2.5 5.4c-.3-.7.4-1.4 1.1-1.1z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {comments.length === 0 ? (
@@ -278,72 +326,198 @@ function PostDetail({ post, onVote, onBack }) {
   );
 }
 
-function WriteModal({ onClose, onSubmit }) {
+/** 글쓰기 — 모달이 아니라 커뮤니티 안의 전용 화면. */
+function WritePage({ onCancel, onSubmit }) {
   const [boardId, setBoardId] = useState('gwangju-dong');
   const [title, setTitle] = useState('');
   const [place, setPlace] = useState('');
   const [body, setBody] = useState('');
+  // 사진은 브라우저 안에서만 미리보기로 살아 있고 서버로 전송하지 않습니다.
+  const [photos, setPhotos] = useState([]);
+  const [photoMsg, setPhotoMsg] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const [anonymous, setAnonymous] = useState(false);
+  const fileInputRef = useRef(null);
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+
+  // 언마운트 시 남은 objectURL 회수 (해제하지 않으면 메모리에 계속 남음)
+  useEffect(
+    () => () => {
+      photosRef.current.forEach(p => URL.revokeObjectURL(p.url));
+    },
+    [],
+  );
+
+  const addFiles = fileList => {
+    const images = Array.from(fileList || []).filter(f =>
+      f.type.startsWith('image/'),
+    );
+    if (!images.length) {
+      setPhotoMsg('이미지 파일만 첨부할 수 있어요.');
+      return;
+    }
+    const room = PHOTO_MAX - photos.length;
+    if (room <= 0) {
+      setPhotoMsg(`사진은 최대 ${PHOTO_MAX}장까지 첨부할 수 있어요.`);
+      return;
+    }
+    setPhotoMsg(
+      images.length > room
+        ? `사진은 최대 ${PHOTO_MAX}장까지예요. ${room}장만 추가했어요.`
+        : '',
+    );
+    setPhotos(prev => [
+      ...prev,
+      ...images.slice(0, room).map(file => ({
+        id: `${file.name}-${file.lastModified}-${Math.random()}`,
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    ]);
+  };
+
+  const removePhoto = id => {
+    setPhotos(prev => {
+      const target = prev.find(p => p.id === id);
+      if (target) URL.revokeObjectURL(target.url);
+      return prev.filter(p => p.id !== id);
+    });
+    setPhotoMsg('');
+  };
 
   const canSubmit = title.trim() && body.trim();
 
   return (
-    <div className="cm-modal-backdrop" onClick={onClose}>
-      <div className="cm-modal" onClick={e => e.stopPropagation()}>
-        <div className="cm-modal-head">
-          <h3>글 쓰기</h3>
-          <button type="button" className="cm-modal-close" onClick={onClose}>
-            ✕
-          </button>
+    <div className="cm-write">
+      <div className="cm-write-main">
+        <button type="button" className="cm-back-btn" onClick={onCancel}>
+          ← 목록으로
+        </button>
+
+        <div className="cm-write-board-row">
+          <span className="cm-write-board-label">게시판</span>
+          <Dropdown
+            value={boardId}
+            options={BOARD_OPTIONS}
+            onChange={setBoardId}
+            className="cm-dropdown--board"
+            ariaLabel="게시판"
+          />
+
+          <label className="cm-switch">
+            <input
+              type="checkbox"
+              checked={anonymous}
+              onChange={e => setAnonymous(e.target.checked)}
+            />
+            <span className="cm-switch-track" aria-hidden="true">
+              <span className="cm-switch-thumb" />
+            </span>
+            <span className="cm-switch-label">익명으로 작성</span>
+          </label>
         </div>
 
-        <label className="cm-field">
-          <span>게시판</span>
-          <select value={boardId} onChange={e => setBoardId(e.target.value)}>
-            {COMMUNITY_BOARDS.filter(b => b.id !== 'all').map(b => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <input
+          className="cm-write-title-input"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="제목"
+          aria-label="제목"
+        />
 
-        <label className="cm-field">
-          <span>제목</span>
+        <input
+          className="cm-write-place"
+          value={place}
+          onChange={e => setPlace(e.target.value)}
+          placeholder="장소 추가 (선택)"
+          aria-label="장소"
+        />
+
+        <textarea
+          className="cm-write-body"
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          rows={14}
+          placeholder={BODY_PLACEHOLDER}
+          aria-label="내용"
+        />
+
+        <div className="cm-write-photos">
+          <button
+            type="button"
+            className={`cm-dropzone${dragging ? ' dragging' : ''}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => {
+              e.preventDefault();
+              setDragging(false);
+              addFiles(e.dataTransfer.files);
+            }}
+          >
+            <LineIcon name="image" />
+            <span className="cm-dropzone-text">
+              사진을 끌어다 놓거나 클릭해 선택하세요
+            </span>
+            <span className="cm-dropzone-hint">
+              {photos.length}/{PHOTO_MAX}장
+            </span>
+          </button>
           <input
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="어떤 장소에 대한 이야기인가요?"
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={e => {
+              addFiles(e.target.files);
+              e.target.value = '';
+            }}
           />
-        </label>
+          {photoMsg && <p className="cm-photo-msg">{photoMsg}</p>}
+          {photos.length > 0 && (
+            <ul className="cm-photo-grid">
+              {photos.map((p, i) => (
+                <li key={p.id} className="cm-photo">
+                  <img src={p.url} alt="" />
+                  {i === 0 && <span className="cm-photo-badge">대표</span>}
+                  <button
+                    type="button"
+                    className="cm-photo-remove"
+                    onClick={() => removePhoto(p.id)}
+                    aria-label="사진 삭제"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-        <label className="cm-field">
-          <span>장소 (선택)</span>
-          <input
-            value={place}
-            onChange={e => setPlace(e.target.value)}
-            placeholder="예: 무등산 국립공원"
-          />
-        </label>
-
-        <label className="cm-field">
-          <span>내용</span>
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            rows={8}
-            placeholder="방문 시기, 가는 방법, 좋았던 점을 적어주세요."
-          />
-        </label>
-
-        <div className="cm-modal-actions">
-          <button type="button" className="cm-btn" onClick={onClose}>
+        <div className="cm-write-actions">
+          <button type="button" className="cm-btn" onClick={onCancel}>
             취소
           </button>
           <button
             type="button"
             className="cm-btn cm-btn--primary"
             disabled={!canSubmit}
-            onClick={() => onSubmit({ boardId, title, place, body })}
+            onClick={() =>
+              // 백엔드가 붙으면 여기서 photos를 업로드한 뒤 URL을 함께 보내면 됩니다.
+              onSubmit({
+                boardId,
+                title,
+                place,
+                body,
+                anonymous,
+                photoCount: photos.length,
+              })
+            }
           >
             등록
           </button>
@@ -375,8 +549,10 @@ export default function CommunityPage() {
         title: draft.title.trim(),
         body: draft.body.trim(),
         place: draft.place.trim(),
-        author: 'me',
+        author: draft.anonymous ? '' : 'me',
+        anonymous: Boolean(draft.anonymous),
         createdAt: '방금 전',
+        photoCount: draft.photoCount || 0,
         votes: 1,
         comments: 0,
         myVote: 1,
@@ -384,6 +560,7 @@ export default function CommunityPage() {
       ...prev,
     ]);
     setIsWriteOpen(false);
+    setOpenPostId(null);
     setActiveBoard(draft.boardId);
     setSort('new');
   };
@@ -408,6 +585,16 @@ export default function CommunityPage() {
   }, [posts, activeBoard, sort, query]);
 
   const openPost = posts.find(p => p.id === openPostId) || null;
+
+  // 글쓰기는 목록/상세를 덮는 전용 화면
+  if (isWriteOpen) {
+    return (
+      <WritePage
+        onCancel={() => setIsWriteOpen(false)}
+        onSubmit={handleCreate}
+      />
+    );
+  }
 
   return (
     <div className="cm-page">
@@ -442,13 +629,28 @@ export default function CommunityPage() {
         ) : (
           <>
             <div className="cm-toolbar">
-              <SortDropdown value={sort} onChange={setSort} />
-              <input
-                className="cm-search"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="커뮤니티 검색"
+              <Dropdown
+                value={sort}
+                options={COMMUNITY_SORTS}
+                onChange={setSort}
+                ariaLabel="정렬 기준"
               />
+              <div className="cm-toolbar-right">
+                {/* 우측 사이드바가 숨는 좁은 화면에서만 노출되는 글쓰기 버튼 */}
+                <button
+                  type="button"
+                  className="cm-btn cm-btn--primary cm-toolbar-write"
+                  onClick={() => setIsWriteOpen(true)}
+                >
+                  글 쓰기
+                </button>
+                <input
+                  className="cm-search"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="커뮤니티 검색"
+                />
+              </div>
             </div>
 
             {visiblePosts.length === 0 ? (
@@ -519,12 +721,6 @@ export default function CommunityPage() {
         </div>
       </aside>
 
-      {isWriteOpen && (
-        <WriteModal
-          onClose={() => setIsWriteOpen(false)}
-          onSubmit={handleCreate}
-        />
-      )}
     </div>
   );
 }

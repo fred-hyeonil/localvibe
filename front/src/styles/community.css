@@ -77,6 +77,20 @@
 }
 
 /* 정렬 툴바 — 목록과 같은 결로 테두리 없이 */
+.cm-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 넓은 화면에서는 우측 사이드바의 버튼을 쓰므로 숨김 */
+.cm-toolbar-write {
+  display: none;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
 .cm-toolbar {
   display: flex;
   align-items: center;
@@ -359,20 +373,19 @@
 
 .cm-back-btn {
   align-self: flex-start;
-  padding: 6px 12px;
+  padding: 4px 0;
   background: none;
-  border: 1px solid var(--gray-200);
-  border-radius: 999px;
+  border: none;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  color: var(--gray-700);
+  color: var(--gray-500);
   cursor: pointer;
-  transition: background var(--tr-fast);
+  transition: color var(--tr-fast);
 }
 
 .cm-back-btn:hover {
-  background: var(--gray-100);
+  color: var(--black);
 }
 
 .cm-detail-title {
@@ -395,53 +408,6 @@
   white-space: pre-wrap;
 }
 
-.cm-place-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 14px;
-  padding: 10px 14px;
-  background: var(--gray-50);
-  border: 1px solid var(--gray-200);
-  border-radius: 10px;
-}
-
-.cm-place-card > div {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.cm-place-card strong {
-  font-size: 13px;
-}
-
-.cm-place-card span {
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.cm-place-pin {
-  font-size: 16px;
-}
-
-.cm-place-link {
-  padding: 6px 12px;
-  background: var(--white);
-  border: 1px solid var(--gray-300);
-  border-radius: 8px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--tr-fast);
-}
-
-.cm-place-link:hover {
-  background: var(--gray-100);
-}
-
 /* ── 댓글 ── */
 .cm-comment-section {
   padding: 16px;
@@ -450,11 +416,27 @@
   border-radius: 12px;
 }
 
-.cm-comment-input {
-  width: 100%;
-  padding: 10px 12px;
+/* 입력창 + 우측 하단 오버레이를 함께 감싸는 상자 */
+.cm-comment-box {
+  position: relative;
   background: var(--gray-50);
   border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  transition: border-color var(--tr-fast), background var(--tr-fast);
+}
+
+.cm-comment-box:focus-within {
+  border-color: var(--gray-400);
+  background: var(--white);
+}
+
+.cm-comment-input {
+  display: block;
+  width: 100%;
+  /* 우측 하단 컨트롤과 글자가 겹치지 않도록 아래쪽을 비워둡니다. */
+  padding: 10px 12px 34px;
+  background: none;
+  border: none;
   border-radius: 10px;
   font: inherit;
   font-size: 13px;
@@ -463,15 +445,55 @@
   outline: none;
 }
 
-.cm-comment-input:focus {
-  border-color: var(--gray-400);
-  background: var(--white);
+.cm-comment-input-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
 }
 
-.cm-comment-input-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: 8px 0 4px;
+.cm-comment-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 종이비행기 전송 버튼 — 입력이 있어야 활성화됩니다. */
+.cm-send-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--gray-300);
+  border: none;
+  border-radius: 50%;
+  color: var(--white);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--tr-fast), transform var(--tr-fast);
+}
+
+.cm-send-btn svg {
+  width: 12px;
+  height: 12px;
+  margin-left: 1px;
+}
+
+.cm-send-btn:not(:disabled) {
+  background: var(--black);
+}
+
+.cm-send-btn:not(:disabled):hover {
+  transform: scale(1.08);
+}
+
+.cm-send-btn:disabled {
+  cursor: not-allowed;
 }
 
 .cm-comment-list {
@@ -523,8 +545,35 @@
 
 .cm-comment-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   margin-left: 24px;
+}
+
+/* 답글 접기/펼치기 */
+.cm-replies-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0 24px;
+  padding: 5px 10px;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: background var(--tr-fast);
+}
+
+.cm-replies-toggle:hover {
+  background: var(--gray-100);
+}
+
+.cm-caret.up {
+  transform: translateY(2px) rotate(180deg);
 }
 
 /* ── 우측 카드 ── */
@@ -673,69 +722,202 @@
   color: var(--gray-400);
 }
 
-/* ── 글쓰기 모달 ── */
-.cm-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.45);
-  animation: cm-fade var(--tr-mid);
+/* ── 글쓰기 화면 ── */
+.cm-write {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 0 40px;
 }
 
-.cm-modal {
-  width: min(560px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  padding: 20px 22px 22px;
-  background: var(--white);
-  border-radius: 16px;
-  box-shadow: var(--shadow-lg);
-  animation: cm-pop var(--tr-mid);
+.cm-write-main {
+  min-width: 0;
 }
 
-@keyframes cm-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes cm-pop {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-}
-
-.cm-modal-head {
+/* 게시판 선택 — 제목 위 독립된 줄로 눈에 띄게 */
+.cm-write-board-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin: 20px 0 18px;
 }
 
-.cm-modal-head h3 {
-  margin: 0;
-  font-size: 17px;
+.cm-write-board-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--gray-400);
+}
+
+/* 익명 토글 스위치 */
+.cm-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cm-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cm-switch-track {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 20px;
+  background: var(--gray-300);
+  border-radius: 999px;
+  transition: background var(--tr-fast);
+}
+
+.cm-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--white);
+  border-radius: 50%;
+  transition: transform var(--tr-fast);
+}
+
+.cm-switch input:checked + .cm-switch-track {
+  background: var(--black);
+}
+
+.cm-switch input:checked + .cm-switch-track .cm-switch-thumb {
+  transform: translateX(14px);
+}
+
+.cm-switch input:focus-visible + .cm-switch-track {
+  box-shadow: 0 0 0 3px var(--gray-200);
+}
+
+.cm-switch-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
+/* 댓글 입력창 안에 들어가는 작은 스위치 */
+.cm-switch--sm {
+  margin-left: 0;
+  gap: 5px;
+  pointer-events: auto;
+}
+
+.cm-switch--sm .cm-switch-track {
+  width: 26px;
+  height: 15px;
+}
+
+.cm-switch--sm .cm-switch-thumb {
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+}
+
+.cm-switch--sm input:checked + .cm-switch-track .cm-switch-thumb {
+  transform: translateX(11px);
+}
+
+.cm-switch--sm .cm-switch-label {
+  font-size: 11px;
+}
+
+.cm-switch input:checked ~ .cm-switch-label {
+  color: var(--black);
+}
+
+/* 글쓰기의 게시판 드롭다운 — 목록 정렬 드롭다운과 같은 모양 */
+.cm-dropdown--board .cm-dropdown-trigger {
+  padding: 0 6px;
+  color: var(--black);
+}
+
+.cm-dropdown--board .cm-dropdown-trigger:hover,
+.cm-dropdown--board .cm-dropdown-trigger.open {
+  background: none;
+  color: var(--gray-700);
+}
+
+.cm-dropdown--board .cm-dropdown-menu {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* 테두리 없는 에디터 — 제목 / 구분선 / 장소 / 본문 */
+.cm-write-title-input,
+.cm-write-place,
+.cm-write-body {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--black);
+  outline: none;
+}
+
+.cm-write-title-input {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--gray-200);
+  font-size: clamp(28px, 4vw, 38px);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+
+.cm-write-title-input::placeholder {
+  color: var(--gray-300);
   font-weight: 800;
 }
 
-.cm-modal-close {
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: none;
-  border-radius: 8px;
+.cm-write-place {
+  margin-top: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--gray-200);
   font-size: 13px;
-  color: var(--gray-500);
-  cursor: pointer;
+  font-weight: 600;
+  color: var(--gray-700);
 }
 
-.cm-modal-close:hover {
-  background: var(--gray-100);
-  color: var(--black);
+.cm-write-place::placeholder {
+  color: var(--gray-400);
+  font-weight: 500;
+}
+
+.cm-write-body {
+  margin-top: 18px;
+  min-height: 320px;
+  font-size: 15px;
+  line-height: 1.85;
+  resize: none;
+}
+
+.cm-write-body::placeholder {
+  color: var(--gray-400);
+}
+
+.cm-write-photos {
+  margin-top: 24px;
+}
+
+.cm-write-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--gray-200);
 }
 
 .cm-field {
@@ -754,7 +936,7 @@
 .cm-field input,
 .cm-field select,
 .cm-field textarea {
-  padding: 9px 12px;
+  padding: 11px 14px;
   background: var(--gray-50);
   border: 1px solid var(--gray-200);
   border-radius: 9px;
@@ -770,6 +952,10 @@
   resize: vertical;
 }
 
+.cm-field textarea::placeholder {
+  color: var(--gray-400);
+}
+
 .cm-field input:focus,
 .cm-field select:focus,
 .cm-field textarea:focus {
@@ -777,11 +963,116 @@
   background: var(--white);
 }
 
-.cm-modal-actions {
+/* ── 사진 첨부 ── */
+.cm-dropzone {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 16px;
+  background: none;
+  border: 1px dashed var(--gray-300);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition:
+    background var(--tr-fast),
+    border-color var(--tr-fast),
+    color var(--tr-fast);
+}
+
+.cm-dropzone:hover,
+.cm-dropzone.dragging {
+  background: var(--white);
+  border-color: var(--black);
+  color: var(--black);
+}
+
+.cm-dropzone .cm-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.cm-dropzone-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cm-dropzone-hint {
+  font-size: 11px;
+  color: var(--gray-400);
+}
+
+.cm-photo-msg {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.cm-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 8px;
-  margin-top: 8px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.cm-photo {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+}
+
+.cm-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cm-photo-badge {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 2px 7px;
+  background: var(--black);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--white);
+}
+
+.cm-photo-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  border-radius: 50%;
+  font-size: 10px;
+  color: var(--white);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--tr-fast), background var(--tr-fast);
+}
+
+.cm-photo:hover .cm-photo-remove,
+.cm-photo-remove:focus-visible {
+  opacity: 1;
+}
+
+.cm-photo-remove:hover {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 /* ── 반응형 ── */
@@ -791,6 +1082,11 @@
   }
   .cm-side--right {
     display: none;
+  }
+  /* 사이드바가 사라지므로 툴바에서 글쓰기로 진입 */
+  .cm-toolbar-write {
+    display: inline-flex;
+    align-items: center;
   }
 }
 

@@ -1,6 +1,7 @@
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import LineIcon from './ui/LineIcon';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -216,12 +217,10 @@ export default function CommonHeader({ onTabChange }) {
                         : navigate('/main', { state: { tab: 'mypage' } });
                     }}
                   >
-                    <span
+                    <LineIcon
+                      name="user"
                       className="common-header-profile-menu-icon"
-                      aria-hidden="true"
-                    >
-                      ○
-                    </span>
+                    />
                     마이페이지
                   </button>
                   <button
@@ -229,12 +228,10 @@ export default function CommonHeader({ onTabChange }) {
                     type="button"
                     onClick={handleLogout}
                   >
-                    <span
+                    <LineIcon
+                      name="logout"
                       className="common-header-profile-menu-icon"
-                      aria-hidden="true"
-                    >
-                      ↪
-                    </span>
+                    />
                     로그아웃
                   </button>
                 </div>
