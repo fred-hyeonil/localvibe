@@ -5,28 +5,46 @@ import { useNavigate } from 'react-router-dom';
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
+function readPictureFromToken(token) {
+  try {
+    const encoded = String(token || '').split('.')[1];
+    if (!encoded) return '';
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(
+      atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')),
+    );
+    return String(claims?.picture || '');
+  } catch {
+    return '';
+  }
+}
+
+function readStoredUser() {
+  try {
+    const raw = localStorage.getItem('lv_user');
+    const user = raw ? JSON.parse(raw) : null;
+    if (!user) return null;
+    const picture =
+      user.picture ||
+      user.profile_image ||
+      user.profileImage ||
+      readPictureFromToken(localStorage.getItem('lv_access_token'));
+    return picture && !user.picture ? { ...user, picture } : user;
+  } catch {
+    return null;
+  }
+}
+
 export default function CommonHeader({ onTabChange }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState(() => {
-    try {
-      const raw = localStorage.getItem('lv_user');
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(readStoredUser);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const loginRef = useRef(null);
 
   useEffect(() => {
     const sync = () => {
-      try {
-        const raw = localStorage.getItem('lv_user');
-        setUser(raw ? JSON.parse(raw) : null);
-      } catch {
-        setUser(null);
-      }
+      setUser(readStoredUser());
     };
     window.addEventListener('storage', sync);
     window.addEventListener('lv-auth-changed', sync);
@@ -58,7 +76,18 @@ export default function CommonHeader({ onTabChange }) {
       if (!res.ok) throw new Error();
       const data = await res.json();
       const token = String(data?.access_token || '');
-      const nextUser = data?.user || null;
+      const responseUser = data?.user || null;
+      const nextUser = responseUser
+        ? {
+            ...responseUser,
+            picture:
+              responseUser.picture ||
+              responseUser.profile_image ||
+              responseUser.profileImage ||
+              readPictureFromToken(credential) ||
+              readPictureFromToken(token),
+          }
+        : null;
       if (!token || !nextUser) throw new Error();
       localStorage.setItem('lv_access_token', token);
       localStorage.setItem('lv_user', JSON.stringify(nextUser));
@@ -114,7 +143,16 @@ export default function CommonHeader({ onTabChange }) {
           >
             플래너
           </span>
-          <span className="common-header-nav-link">커뮤니티</span>
+          <span
+            className="common-header-nav-link"
+            onClick={() =>
+              onTabChange
+                ? onTabChange('community')
+                : navigate('/main', { state: { tab: 'community' } })
+            }
+          >
+            커뮤니티
+          </span>
         </nav>
 
         {/* 구분선 */}

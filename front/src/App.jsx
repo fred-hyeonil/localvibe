@@ -8,6 +8,7 @@ import TripPlannerPage from './pages/TripPlannerPage';
 import TripSelectModal from './components/TripSelectModal';
 import MyPage from './pages/MyPage';
 import ContactPage from './pages/ContactPage';
+import CommunityPage from './pages/CommunityPage';
 import {
   normalizeRegionMediaFields,
   resolveBackendMediaUrl,
@@ -80,6 +81,10 @@ const PAGE_INFO = {
   mypage: {
     title: '마이페이지',
     subtitle: '스크랩한 장소와 내 여행 일정을 관리하세요.',
+  },
+  community: {
+    title: '커뮤니티',
+    subtitle: '광주·전남의 장소를 다녀온 사람들의 이야기.',
   },
   contact: {
     title: '문의하기',
@@ -265,6 +270,7 @@ export default function App() {
       tab === 'planner' ||
       tab === 'gallery' ||
       tab === 'mypage' ||
+      tab === 'community' ||
       tab === 'contact'
     ) {
       setActiveTab(tab);
@@ -274,7 +280,11 @@ export default function App() {
 
   // 탭 전환 시 모달 초기화
   useEffect(() => {
-    if (activeTab === 'planner' || activeTab === 'contact') {
+    if (
+      activeTab === 'planner' ||
+      activeTab === 'contact' ||
+      activeTab === 'community'
+    ) {
       setSelectedRegion(null);
       setInsightRegion(null);
       setModalCrawlImages([]);
@@ -541,13 +551,16 @@ export default function App() {
 
         <main
           className={`app-shell${
-            activeTab === 'mypage' || activeTab === 'planner'
+            activeTab === 'mypage' ||
+            activeTab === 'planner' ||
+            activeTab === 'community'
               ? ' app-shell--mypage'
               : ''
           }`}
         >
           {activeTab !== 'gallery' &&
             activeTab !== 'mypage' &&
+            activeTab !== 'community' &&
             activeTab !== 'planner' && (
             <div
               className={`page-header${activeTab === 'contact' ? ' page-header--contact' : ''}`}
@@ -615,6 +628,8 @@ export default function App() {
           </div>
 
           {activeTab === 'contact' && <ContactPage />}
+
+          {activeTab === 'community' && <CommunityPage />}
 
           {activeTab === 'mypage' && (
             <MyPage
