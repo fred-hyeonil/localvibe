@@ -206,7 +206,7 @@ export default function CommonHeader({ onTabChange }) {
             <>
               <button
                 className="common-header-btn"
-                onClick={() => setIsLoginOpen(true)}
+                onClick={() => setIsLoginOpen(open => !open)}
               >
                 로그인
               </button>
