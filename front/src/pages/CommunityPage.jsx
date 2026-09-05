@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   COMMUNITY_BOARDS,
   COMMUNITY_COMMENTS,
@@ -532,8 +533,35 @@ export default function CommunityPage() {
   const [activeBoard, setActiveBoard] = useState('all');
   const [sort, setSort] = useState('hot');
   const [query, setQuery] = useState('');
-  const [openPostId, setOpenPostId] = useState(null);
+  // 상세 글은 URL(?post=)이 단일 소스 — 새로고침·뒤로가기·공유가 그대로 동작한다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openPostId = Number(searchParams.get('post')) || null;
+
+  const setOpenPostId = id => {
+    const next = new URLSearchParams(searchParams);
+    if (id == null) next.delete('post');
+    else next.set('post', String(id));
+    setSearchParams(next, { replace: true });
+  };
+
   const [isWriteOpen, setIsWriteOpen] = useState(false);
+  // 목록 → 상세로 갈 때 스크롤이 그대로 남지 않도록.
+  // 돌아올 때는 보던 위치로 되돌린다.
+  const listScrollY = useRef(0);
+
+  const openPostDetail = id => {
+    listScrollY.current = window.scrollY;
+    setOpenPostId(id);
+    window.scrollTo({ top: 0 });
+  };
+
+  const backToList = () => {
+    setOpenPostId(null);
+    // 목록이 다시 그려진 뒤에 위치를 복원
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: listScrollY.current });
+    });
+  };
 
   const handleVote = (postId, myVote) => {
     setPosts(prev =>
@@ -590,7 +618,12 @@ export default function CommunityPage() {
   if (isWriteOpen) {
     return (
       <WritePage
-        onCancel={() => setIsWriteOpen(false)}
+        onCancel={() => {
+          setIsWriteOpen(false);
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: listScrollY.current });
+          });
+        }}
         onSubmit={handleCreate}
       />
     );
@@ -624,7 +657,7 @@ export default function CommunityPage() {
           <PostDetail
             post={openPost}
             onVote={handleVote}
-            onBack={() => setOpenPostId(null)}
+            onBack={backToList}
           />
         ) : (
           <>
@@ -640,7 +673,11 @@ export default function CommunityPage() {
                 <button
                   type="button"
                   className="cm-btn cm-btn--primary cm-toolbar-write"
-                  onClick={() => setIsWriteOpen(true)}
+                  onClick={() => {
+              listScrollY.current = window.scrollY;
+              setIsWriteOpen(true);
+              window.scrollTo({ top: 0 });
+            }}
                 >
                   글 쓰기
                 </button>
@@ -662,7 +699,7 @@ export default function CommunityPage() {
                     key={post.id}
                     post={post}
                     onVote={handleVote}
-                    onOpen={p => setOpenPostId(p.id)}
+                    onOpen={p => openPostDetail(p.id)}
                   />
                 ))}
               </div>
@@ -692,7 +729,11 @@ export default function CommunityPage() {
           <button
             type="button"
             className="cm-btn cm-btn--primary cm-btn--block"
-            onClick={() => setIsWriteOpen(true)}
+            onClick={() => {
+              listScrollY.current = window.scrollY;
+              setIsWriteOpen(true);
+              window.scrollTo({ top: 0 });
+            }}
           >
             글 쓰기
           </button>

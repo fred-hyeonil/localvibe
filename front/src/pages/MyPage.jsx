@@ -281,7 +281,7 @@ export default function MyPage({
                 <button
                   type="button"
                   className="mypage-activity"
-                  onClick={() => onGoCommunity?.()}
+                  onClick={() => onGoCommunity?.(post.id)}
                 >
                   <div className="mypage-activity-meta">
                     <span className="mypage-activity-board">
@@ -327,7 +327,7 @@ export default function MyPage({
                 <button
                   type="button"
                   className="mypage-activity"
-                  onClick={() => onGoCommunity?.()}
+                  onClick={() => onGoCommunity?.(post.id)}
                 >
                   <div className="mypage-activity-meta">
                     <span className="mypage-activity-board">
@@ -376,7 +376,7 @@ export default function MyPage({
                 <button
                   type="button"
                   className="mypage-activity"
-                  onClick={() => onGoCommunity?.()}
+                  onClick={() => onGoCommunity?.(comment.postId)}
                 >
                   <div className="mypage-activity-meta">
                     <span>{comment.createdAt}</span>

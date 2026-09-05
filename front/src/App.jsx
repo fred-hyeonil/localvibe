@@ -261,9 +261,21 @@ export default function App() {
   } = useGalleryFeed();
 
   // ── 로컬 UI 상태 ─────────────────────────────────────────────────
-  // 새로고침해도 탭이 유지되도록 URL(?tab=)을 기준으로 시작합니다.
-  const [activeTab, setActiveTab] = useState(() =>
-    readTabFromSearch(window.location.search),
+  // 탭의 단일 소스는 URL(?tab=). state로 복제하면 두 값이 서로를 덮어쓰며
+  // 무한 렌더가 발생하므로, 여기서는 파생만 하고 변경은 navigate로 한다.
+  const activeTab = readTabFromSearch(location.search);
+
+  const setActiveTab = useCallback(
+    tab => {
+      const params = new URLSearchParams(location.search);
+      if (tab === 'gallery') params.delete('tab');
+      else params.set('tab', tab);
+      // 커뮤니티를 벗어나면 열려 있던 글도 함께 정리
+      if (tab !== 'community') params.delete('post');
+      const qs = params.toString();
+      navigate(`${location.pathname}${qs ? `?${qs}` : ''}`);
+    },
+    [location.pathname, location.search, navigate],
   );
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [insightRegion, setInsightRegion] = useState(null);
@@ -281,14 +293,14 @@ export default function App() {
 
   // ── Effects ──────────────────────────────────────────────────────
 
-  // 예전 방식(navigate(state:{tab}))으로 들어온 경우 URL로 옮겨줍니다.
-  // 탭의 단일 소스는 URL(?tab=)이며, 아래 효과가 그 값을 상태에 반영합니다.
+  // 예전 방식(navigate(state:{tab}))으로 들어온 경우에만 URL로 옮겨준다.
   useEffect(() => {
     const tab = location.state?.tab;
     if (!VALID_TABS.includes(tab)) return;
     const params = new URLSearchParams(location.search);
     if (tab === 'gallery') params.delete('tab');
     else params.set('tab', tab);
+    if (tab !== 'community') params.delete('post');
     const qs = params.toString();
     navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, {
       replace: true,
@@ -296,24 +308,12 @@ export default function App() {
     });
   }, [location.state, location.pathname, location.search, navigate]);
 
-  // 뒤로/앞으로 가기로 URL이 바뀌면 탭도 따라갑니다.
-  useEffect(() => {
-    setActiveTab(readTabFromSearch(location.search));
-  }, [location.search]);
-
-  // 탭이 바뀌면 URL에 기록 — 새로고침·북마크·공유에서 같은 탭이 열립니다.
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('tab') === activeTab) return;
-    if (activeTab === 'gallery') params.delete('tab');
-    else params.set('tab', activeTab);
-    const qs = params.toString();
-    navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, { replace: true });
-  }, [activeTab, location.pathname, location.search, navigate]);
-
   // 탭 전환 시 콘텐츠 영역에 등장 애니메이션 재생.
   // 플래너는 계속 마운트해 두는 구조라 리마운트(key) 대신 클래스를 다시 붙여 재생한다.
   useEffect(() => {
+    // 탭이 바뀌면 이전 탭에서 내려둔 스크롤이 남지 않도록 맨 위에서 시작한다.
+    window.scrollTo({ top: 0 });
+
     const el = shellRef.current;
     if (!el) return;
     el.classList.remove('app-shell--switching');
@@ -684,7 +684,12 @@ export default function App() {
                 setSelectedRegion(region);
                 setInsightRegion(null);
               }}
-              onGoCommunity={() => setActiveTab('community')}
+              onGoCommunity={postId => {
+                const params = new URLSearchParams();
+                params.set('tab', 'community');
+                if (postId != null) params.set('post', String(postId));
+                navigate(`/main?${params.toString()}`);
+              }}
               currentUser={currentUser}
               onAddToTrip={handleRequestAddToTrip}
               regionMap={regionMap}

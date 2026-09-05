@@ -122,6 +122,33 @@ export const COMMUNITY_POSTS = [
     comments: 51,
     myVote: 0,
   },
+  // 아래 두 건은 로그인 사용자('me')가 쓴 글 — 마이페이지 '작성글'에서 필터로 뽑아 씁니다.
+  {
+    id: 9,
+    boardId: 'gwangju-nam',
+    title: '양림동 카페 골목, 주차는 어디에 하면 좋을까요',
+    body: '주말에 갔다가 주차 자리를 못 찾아서 20분을 돌았습니다. 근처에 공영주차장이 있다고 들었는데 어디가 제일 가까운지 아시는 분 계실까요?',
+    place: '양림동',
+    author: 'me',
+    createdAt: '2일 전',
+    votes: 12,
+    comments: 5,
+    myVote: 0,
+    anonymous: false,
+  },
+  {
+    id: 10,
+    boardId: 'damyang',
+    title: '죽녹원 평일 오후에 다녀왔습니다',
+    body: '사람이 거의 없어서 대나무 소리만 들렸어요. 입구에서 정상까지 천천히 걸어 한 시간 정도 걸렸습니다.',
+    place: '죽녹원',
+    author: 'me',
+    createdAt: '1주 전',
+    votes: 34,
+    comments: 8,
+    myVote: 0,
+    anonymous: true,
+  },
 ];
 
 export const COMMUNITY_COMMENTS = {
@@ -192,30 +219,9 @@ export const COMMUNITY_RULES = [
  * 마이페이지 '내 활동'용 목업.
  * 로그인 사용자가 쓴 글·댓글이며, 백엔드가 붙으면 /api/me/... 응답으로 대체됩니다.
  */
-export const COMMUNITY_MY_POSTS = [
-  {
-    id: 901,
-    boardId: 'gwangju-nam',
-    title: '양림동 카페 골목, 주차는 어디에 하면 좋을까요',
-    body: '주말에 갔다가 주차 자리를 못 찾아서 20분을 돌았습니다. 근처에 공영주차장이 있다고 들었는데 어디가 제일 가까운지 아시는 분 계실까요?',
-    place: '양림동',
-    createdAt: '2일 전',
-    votes: 12,
-    comments: 5,
-    anonymous: false,
-  },
-  {
-    id: 902,
-    boardId: 'damyang',
-    title: '죽녹원 평일 오후에 다녀왔습니다',
-    body: '사람이 거의 없어서 대나무 소리만 들렸어요. 입구에서 정상까지 천천히 걸어 한 시간 정도 걸렸습니다.',
-    place: '죽녹원',
-    createdAt: '1주 전',
-    votes: 34,
-    comments: 8,
-    anonymous: true,
-  },
-];
+export const COMMUNITY_MY_POSTS = COMMUNITY_POSTS.filter(
+  post => post.author === 'me',
+);
 
 export const COMMUNITY_MY_COMMENTS = [
   {
@@ -247,30 +253,13 @@ export const COMMUNITY_MY_COMMENTS = [
   },
 ];
 
-/** 마이페이지 '저장한 글' 목업 — 커뮤니티의 저장 버튼으로 담은 글. */
-export const COMMUNITY_SAVED_POSTS = [
-  {
-    id: 3,
-    boardId: 'damyang',
-    title: '메타세쿼이아길 초여름 색감 미쳤습니다 (사진 몇 장)',
-    body: '해질녘 한 시간 전쯤이 제일 예뻐요. 입구 쪽보다 중간 지점에서 뒤돌아 찍는 구도를 추천합니다.',
-    place: '메타세쿼이아 랜드',
-    author: 'film_daily',
-    createdAt: '9시간 전',
-    votes: 412,
-    comments: 27,
-    savedAt: '어제 저장',
-  },
-  {
-    id: 5,
-    boardId: 'suncheon',
-    title: '순천만 습지 갈대밭 탐방로 일부 보수공사 중입니다',
-    body: '무진교 건너편 데크 일부가 통제되어 있었습니다. 주차장은 오전 11시 넘으면 꽉 찹니다.',
-    place: '순천만 국가정원',
-    author: 'wetland_notes',
-    createdAt: '1일 전',
-    votes: 305,
-    comments: 18,
-    savedAt: '3일 전 저장',
-  },
+/** 마이페이지 '저장한 글' — 글 본문은 원본에서 찾아 쓰고 저장 시점만 따로 둡니다. */
+const SAVED_POST_META = [
+  { id: 3, savedAt: '어제 저장' },
+  { id: 5, savedAt: '3일 전 저장' },
 ];
+
+export const COMMUNITY_SAVED_POSTS = SAVED_POST_META.map(meta => {
+  const post = COMMUNITY_POSTS.find(p => p.id === meta.id);
+  return post ? { ...post, savedAt: meta.savedAt } : null;
+}).filter(Boolean);
