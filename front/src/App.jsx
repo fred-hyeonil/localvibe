@@ -592,16 +592,9 @@ export default function App() {
           </aside>
         )}
 
-        <main
-          ref={shellRef}
-          className={`app-shell${
-            activeTab === 'mypage' ||
-            activeTab === 'planner' ||
-            activeTab === 'community'
-              ? ' app-shell--mypage'
-              : ''
-          }`}
-        >
+        <main ref={shellRef} className="app-shell">
+          {/* 콘텐츠가 한 화면을 채우게 해서, 로딩 중에도 푸터가 화면 안으로 올라오지 않게 한다. */}
+          <div className="app-shell-content">
           {activeTab !== 'gallery' &&
             activeTab !== 'mypage' &&
             activeTab !== 'community' &&
@@ -698,6 +691,8 @@ export default function App() {
               regions={regions}
             />
           )}
+
+          </div>
 
           <footer className="main-footer">
             <div className="main-footer-top">

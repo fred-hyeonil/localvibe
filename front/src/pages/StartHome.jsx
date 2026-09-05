@@ -40,8 +40,8 @@ const STEPS = [
 const TECH_CARDS = [
   {
     icon: 'data',
-    title: 'AI-Hub 데이터',
-    desc: '방문 패턴 기반 숨은 지역 분석',
+    title: '한국관광공사 데이터',
+    desc: '공공 관광 데이터 기반 지역 분석',
   },
   {
     icon: 'signal',

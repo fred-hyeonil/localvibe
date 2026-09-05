@@ -419,51 +419,67 @@ export default function MyPage({
               </p>
             </div>
           ) : (
-            <div className="region-grid" style={{ marginTop: 20 }}>
-              {scrappedRegions.map(region => (
-                <article key={region.id} className="region-card">
-                  <div
-                    className="region-preview"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onOpenRegion?.(region)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') onOpenRegion?.(region);
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="card-heart-btn active"
-                      onClick={e => {
-                        e.stopPropagation();
-                        onToggleScrap?.(region.id);
+            // 갤러리와 같은 폭·카드 구조
+            <section className="gallery-scroll-area" style={{ marginTop: 20 }}>
+              <div className="region-grid">
+                {scrappedRegions.map(region => (
+                  <article key={region.id} className="region-card">
+                    <div
+                      className="region-preview"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onOpenRegion?.(region)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onOpenRegion?.(region);
+                        }
                       }}
-                      aria-label="스크랩 해제"
                     >
-                      ♥
-                    </button>
-                    <img
-                      src={displayImageSrc(
-                        region.imageUrl,
-                        resolveBackendMediaUrl,
-                      )}
-                      alt={region.name}
-                      className="region-image"
-                      onError={e => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = CARD_PLACEHOLDER_SVG;
-                      }}
-                    />
-                    <div className="region-overlay">
-                      <span className="region-overlay-name">{region.name}</span>
-                      <p className="region-overlay-summary">
-                        {String(region.summary || '').trim() || '정보 없음'}
-                      </p>
+                      <button
+                        type="button"
+                        className="card-heart-btn active"
+                        onClick={e => {
+                          e.stopPropagation();
+                          onToggleScrap?.(region.id);
+                        }}
+                        aria-label="스크랩 해제"
+                      >
+                        ♥
+                      </button>
+                      <img
+                        src={displayImageSrc(
+                          region.imageUrl,
+                          resolveBackendMediaUrl,
+                        )}
+                        alt={region.name}
+                        className="region-image"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={e => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = CARD_PLACEHOLDER_SVG;
+                        }}
+                      />
                     </div>
-                  </div>
-                </article>
-              ))}
-            </div>
+                    <div className="region-card-content">
+                      <span className="region-card-name">{region.name}</span>
+                      <p className="region-card-summary">
+                        {String(region.summary || '').trim() ||
+                          '광주·전남 추천 스팟 정보를 확인해보세요.'}
+                      </p>
+                      <button
+                        type="button"
+                        className="region-card-read-more"
+                        onClick={() => onOpenRegion?.(region)}
+                      >
+                        Read More
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
         </>
       )}
