@@ -54,6 +54,11 @@ export default function RegionGallery({ regions, onSelect }) {
                 />
               </div>
               <div className="region-card-content">
+                {(region.address || region.region) && (
+                  <span className="region-card-place">
+                    {region.address || region.region}
+                  </span>
+                )}
                 <span className="region-card-name">{region.name}</span>
                 <p className="region-card-summary">
                   {normalizeSummary(region.summary)}
