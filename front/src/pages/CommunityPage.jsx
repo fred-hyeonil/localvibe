@@ -22,6 +22,9 @@ const COMMENT_MAX = 500;
 /** 글 하나에 첨부할 수 있는 사진 수. */
 const PHOTO_MAX = 5;
 
+/** 무한 스크롤에서 한 번에 더 불러오는 글 수. */
+const PAGE_SIZE = 20;
+
 /** 내용 입력 안내 — 커뮤니티 규칙을 그대로 옮겨 적습니다. */
 const BODY_PLACEHOLDER = [
   '방문 시기, 가는 방법, 좋았던 점을 적어주세요.',
@@ -612,6 +615,34 @@ export default function CommunityPage() {
     return sorted;
   }, [posts, activeBoard, sort, query]);
 
+  // ── 무한 스크롤 ──────────────────────────────────────────────
+  // 서버 페이징이 붙기 전까지는 목록을 잘라서 보여주고, 바닥이 보이면 더 잇는다.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef(null);
+
+  // 조건이 바뀌면 처음부터 다시
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [activeBoard, sort, query]);
+
+  const shownPosts = visiblePosts.slice(0, visibleCount);
+  const hasMore = visibleCount < visiblePosts.length;
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return undefined;
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount(c => c + PAGE_SIZE);
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, visiblePosts.length]);
+
   const openPost = posts.find(p => p.id === openPostId) || null;
 
   // 글쓰기는 목록/상세를 덮는 전용 화면
@@ -693,16 +724,23 @@ export default function CommunityPage() {
             {visiblePosts.length === 0 ? (
               <p className="cm-empty">아직 글이 없습니다. 첫 글을 남겨보세요.</p>
             ) : (
-              <div className="cm-post-list">
-                {visiblePosts.map(post => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    onVote={handleVote}
-                    onOpen={p => openPostDetail(p.id)}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="cm-post-list">
+                  {shownPosts.map(post => (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      onVote={handleVote}
+                      onOpen={p => openPostDetail(p.id)}
+                    />
+                  ))}
+                </div>
+                {hasMore && (
+                  <div ref={sentinelRef} className="cm-loading-more">
+                    글 더 불러오는 중…
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -718,12 +756,12 @@ export default function CommunityPage() {
           </p>
           <div className="cm-stats">
             <div>
-              <strong>3,482</strong>
-              <span>멤버</span>
+              <strong>{posts.length}</strong>
+              <span>작성글</span>
             </div>
             <div>
-              <strong>67</strong>
-              <span>접속 중</span>
+              <strong>3,482</strong>
+              <span>멤버</span>
             </div>
           </div>
           <button
