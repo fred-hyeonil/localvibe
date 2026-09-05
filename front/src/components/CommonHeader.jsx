@@ -1,40 +1,12 @@
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { readPictureFromToken, readStoredUser } from '../shared/auth/storedUser';
+import Avatar from './ui/Avatar';
 import LineIcon from './ui/LineIcon';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-
-function readPictureFromToken(token) {
-  try {
-    const encoded = String(token || '').split('.')[1];
-    if (!encoded) return '';
-    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    const claims = JSON.parse(
-      atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')),
-    );
-    return String(claims?.picture || '');
-  } catch {
-    return '';
-  }
-}
-
-function readStoredUser() {
-  try {
-    const raw = localStorage.getItem('lv_user');
-    const user = raw ? JSON.parse(raw) : null;
-    if (!user) return null;
-    const picture =
-      user.picture ||
-      user.profile_image ||
-      user.profileImage ||
-      readPictureFromToken(localStorage.getItem('lv_access_token'));
-    return picture && !user.picture ? { ...user, picture } : user;
-  } catch {
-    return null;
-  }
-}
 
 export default function CommonHeader({ onTabChange }) {
   const navigate = useNavigate();
@@ -129,7 +101,7 @@ export default function CommonHeader({ onTabChange }) {
             onClick={() =>
               onTabChange
                 ? onTabChange('gallery')
-                : navigate('/main', { state: { tab: 'gallery' } })
+                : navigate('/main?tab=gallery')
             }
           >
             갤러리
@@ -139,7 +111,7 @@ export default function CommonHeader({ onTabChange }) {
             onClick={() =>
               onTabChange
                 ? onTabChange('planner')
-                : navigate('/main', { state: { tab: 'planner' } })
+                : navigate('/main?tab=planner')
             }
           >
             플래너
@@ -149,7 +121,7 @@ export default function CommonHeader({ onTabChange }) {
             onClick={() =>
               onTabChange
                 ? onTabChange('community')
-                : navigate('/main', { state: { tab: 'community' } })
+                : navigate('/main?tab=community')
             }
           >
             커뮤니티
@@ -168,19 +140,12 @@ export default function CommonHeader({ onTabChange }) {
                 className="common-header-profile-trigger"
                 onClick={() => setIsProfileOpen(o => !o)}
               >
-                {user.picture ? (
-                  <img
-                    src={user.picture}
-                    alt="profile"
-                    className="common-header-avatar"
-                  />
-                ) : (
-                  <div className="common-header-avatar-fallback">
-                    {String(user.name || 'U')
-                      .slice(0, 1)
-                      .toUpperCase()}
-                  </div>
-                )}
+                <Avatar
+                  src={user.picture}
+                  name={user.name}
+                  className="common-header-avatar"
+                  fallbackClassName="common-header-avatar-fallback"
+                />
                 <span className="common-header-user-name">
                   {user.name || user.email}
                 </span>
@@ -188,19 +153,12 @@ export default function CommonHeader({ onTabChange }) {
               {isProfileOpen && (
                 <div className="common-header-profile-dropdown">
                   <div className="common-header-profile-summary">
-                    {user.picture ? (
-                      <img
-                        src={user.picture}
-                        alt=""
-                        className="common-header-profile-summary-avatar"
-                      />
-                    ) : (
-                      <div className="common-header-profile-summary-avatar common-header-avatar-fallback">
-                        {String(user.name || 'U')
-                          .slice(0, 1)
-                          .toUpperCase()}
-                      </div>
-                    )}
+                    <Avatar
+                      src={user.picture}
+                      name={user.name}
+                      className="common-header-profile-summary-avatar"
+                      fallbackClassName="common-header-avatar-fallback"
+                    />
                     <div className="common-header-profile-summary-text">
                       <strong>{user.name || '사용자'}</strong>
                       <span>{user.email}</span>
@@ -214,7 +172,7 @@ export default function CommonHeader({ onTabChange }) {
                       setIsProfileOpen(false);
                       onTabChange
                         ? onTabChange('mypage')
-                        : navigate('/main', { state: { tab: 'mypage' } });
+                        : navigate('/main?tab=mypage');
                     }}
                   >
                     <LineIcon

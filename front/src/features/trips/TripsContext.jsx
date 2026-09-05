@@ -12,6 +12,7 @@ import {
   addPlaceToTrip,
   createTrip,
   deleteTrip,
+  renameTrip,
   fetchMyTrips,
   removePlaceFromTrip,
   syncMyTrips,
@@ -87,6 +88,17 @@ export function TripsProvider({ children }) {
     [currentUser, requireLogin],
   );
 
+  const handleRenameTrip = useCallback(
+    async (tripId, name) => {
+      if (!currentUser) { requireLogin(); return; }
+      const updated = await renameTrip(tripId, name);
+      setMyTrips(prev =>
+        prev.map(t => (t.id === tripId ? normalizePlaces(updated) : t)),
+      );
+    },
+    [currentUser, requireLogin],
+  );
+
   const handleAddPlaceToTrip = useCallback(
     async (tripId, place) => {
       if (!currentUser) { requireLogin(); return; }
@@ -128,6 +140,7 @@ export function TripsProvider({ children }) {
         requireLogin,
         onCreateTrip: handleCreateTrip,
         onDeleteTrip: handleDeleteTrip,
+        onRenameTrip: handleRenameTrip,
         onAddPlaceToTrip: handleAddPlaceToTrip,
         onRemovePlaceFromTrip: handleRemovePlaceFromTrip,
       }}

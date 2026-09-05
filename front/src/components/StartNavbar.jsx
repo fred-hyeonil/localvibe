@@ -1,36 +1,7 @@
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-function readPictureFromToken(token) {
-  try {
-    const encoded = String(token || '').split('.')[1];
-    if (!encoded) return '';
-    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    const claims = JSON.parse(
-      atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')),
-    );
-    return String(claims?.picture || '');
-  } catch {
-    return '';
-  }
-}
-
-function readStoredUser() {
-  try {
-    const raw = localStorage.getItem('lv_user');
-    const user = raw ? JSON.parse(raw) : null;
-    if (!user) return null;
-    const picture =
-      user.picture ||
-      user.profile_image ||
-      user.profileImage ||
-      readPictureFromToken(localStorage.getItem('lv_access_token'));
-    return picture && !user.picture ? { ...user, picture } : user;
-  } catch {
-    return null;
-  }
-}
+import { readPictureFromToken, readStoredUser } from '../shared/auth/storedUser';
 
 export default function StartNavbar({ hideDivider = false }) {
   const navigate = useNavigate();
@@ -123,7 +94,15 @@ export default function StartNavbar({ hideDivider = false }) {
           <>
             <div style={styles.profileWrap}>
               {user.picture ? (
-                <img src={user.picture} alt="profile" style={styles.avatar} />
+                <img
+                  src={user.picture}
+                  alt="profile"
+                  style={styles.avatar}
+                  referrerPolicy="no-referrer"
+                  onError={e => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
               ) : (
                 <div style={styles.avatarFallback}>
                   {String(user.name || user.email || 'U')

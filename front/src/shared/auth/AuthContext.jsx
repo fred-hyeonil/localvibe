@@ -1,22 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { googleLogout } from '@react-oauth/google';
+import { readStoredUser } from './storedUser';
 
 const AuthContext = createContext(null);
 
-function readUser() {
-  try {
-    const raw = localStorage.getItem('lv_user');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(readUser);
+  const [currentUser, setCurrentUser] = useState(readStoredUser);
 
   useEffect(() => {
-    const sync = () => setCurrentUser(readUser());
+    const sync = () => setCurrentUser(readStoredUser());
     window.addEventListener('lv-auth-changed', sync);
     return () => window.removeEventListener('lv-auth-changed', sync);
   }, []);

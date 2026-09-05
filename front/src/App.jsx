@@ -71,6 +71,14 @@ const REGION_TREE = [
   { id: 'jeju', label: '제주', children: ['제주시', '서귀포'] },
 ];
 
+/** URL(?tab=)과 주고받는 탭 목록. */
+const VALID_TABS = ['gallery', 'planner', 'community', 'mypage', 'contact'];
+
+function readTabFromSearch(search) {
+  const tab = new URLSearchParams(search).get('tab');
+  return VALID_TABS.includes(tab) ? tab : 'gallery';
+}
+
 const PAGE_INFO = {
   gallery: { title: '갤러리', subtitle: '' },
   planner: {
@@ -130,6 +138,10 @@ function SidebarAccount({ currentUser, onAccountClick, onLoginClick }) {
                 objectFit: 'cover',
                 flexShrink: 0,
                 border: '1px solid #eee',
+              }}
+              referrerPolicy="no-referrer"
+              onError={e => {
+                e.currentTarget.style.display = 'none';
               }}
             />
           ) : (
@@ -233,6 +245,7 @@ export default function App() {
     requireLogin: requireLoginForTrips,
     onCreateTrip: handleCreateTrip,
     onDeleteTrip: handleDeleteTrip,
+    onRenameTrip: handleRenameTrip,
     onAddPlaceToTrip: handleAddPlaceToTrip,
     onRemovePlaceFromTrip: handleRemovePlaceFromTrip,
   } = useTrips();
@@ -247,7 +260,10 @@ export default function App() {
   } = useGalleryFeed();
 
   // ── 로컬 UI 상태 ─────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState('gallery');
+  // 새로고침해도 탭이 유지되도록 URL(?tab=)을 기준으로 시작합니다.
+  const [activeTab, setActiveTab] = useState(() =>
+    readTabFromSearch(window.location.search),
+  );
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [insightRegion, setInsightRegion] = useState(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
@@ -264,20 +280,35 @@ export default function App() {
 
   // ── Effects ──────────────────────────────────────────────────────
 
-  // 라우터 state로 탭 전환
+  // 예전 방식(navigate(state:{tab}))으로 들어온 경우 URL로 옮겨줍니다.
+  // 탭의 단일 소스는 URL(?tab=)이며, 아래 효과가 그 값을 상태에 반영합니다.
   useEffect(() => {
     const tab = location.state?.tab;
-    if (
-      tab === 'planner' ||
-      tab === 'gallery' ||
-      tab === 'mypage' ||
-      tab === 'community' ||
-      tab === 'contact'
-    ) {
-      setActiveTab(tab);
-      navigate(location.pathname, { replace: true, state: {} });
-    }
-  }, [location.state, location.pathname, navigate]);
+    if (!VALID_TABS.includes(tab)) return;
+    const params = new URLSearchParams(location.search);
+    if (tab === 'gallery') params.delete('tab');
+    else params.set('tab', tab);
+    const qs = params.toString();
+    navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, {
+      replace: true,
+      state: {},
+    });
+  }, [location.state, location.pathname, location.search, navigate]);
+
+  // 뒤로/앞으로 가기로 URL이 바뀌면 탭도 따라갑니다.
+  useEffect(() => {
+    setActiveTab(readTabFromSearch(location.search));
+  }, [location.search]);
+
+  // 탭이 바뀌면 URL에 기록 — 새로고침·북마크·공유에서 같은 탭이 열립니다.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('tab') === activeTab) return;
+    if (activeTab === 'gallery') params.delete('tab');
+    else params.set('tab', activeTab);
+    const qs = params.toString();
+    navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, { replace: true });
+  }, [activeTab, location.pathname, location.search, navigate]);
 
   // 탭 전환 시 콘텐츠 영역에 등장 애니메이션 재생.
   // 플래너는 계속 마운트해 두는 구조라 리마운트(key) 대신 클래스를 다시 붙여 재생한다.
@@ -650,6 +681,7 @@ export default function App() {
               myTrips={myTrips}
               onCreateTrip={handleCreateTrip}
               onDeleteTrip={handleDeleteTrip}
+              onRenameTrip={handleRenameTrip}
               onAddPlaceToTrip={handleAddPlaceToTrip}
               onRemovePlaceFromTrip={handleRemovePlaceFromTrip}
               onToggleScrap={handleToggleScrap}

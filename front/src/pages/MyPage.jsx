@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import {
@@ -9,6 +9,7 @@ import {
   inferRegionHintsFromTripName,
   searchPlacesForTrip,
 } from '../utils/tripPlaceSearch';
+import Avatar from '../components/ui/Avatar';
 import LineIcon from '../components/ui/LineIcon';
 import {
   COMMUNITY_BOARDS,
@@ -25,6 +26,7 @@ export default function MyPage({
   myTrips = [],
   onCreateTrip,
   onDeleteTrip,
+  onRenameTrip,
   onAddPlaceToTrip,
   onRemovePlaceFromTrip,
   onToggleScrap,
@@ -41,6 +43,23 @@ export default function MyPage({
   const [showNewTripForm, setShowNewTripForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
+  // 일정 카드는 기본 읽기 전용, 수정하기를 눌러야 장소 추가·삭제가 열립니다.
+  const [editingTripId, setEditingTripId] = useState(null);
+  const [menuTripId, setMenuTripId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const menuRef = useRef(null);
+
+  // 케밥 메뉴 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (menuTripId == null) return undefined;
+    const handler = e => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuTripId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuTripId]);
 
   const handleCreateTrip = async e => {
     e.preventDefault();
@@ -62,6 +81,17 @@ export default function MyPage({
       window.alert('여행 만들기에 실패했습니다.');
     } finally {
       setIsCreatingTrip(false);
+    }
+  };
+
+  const handleSaveTripName = async (tripId, originalName) => {
+    const name = editingName.trim();
+    if (!name || name === originalName) return;
+    try {
+      await onRenameTrip?.(tripId, name);
+    } catch {
+      window.alert('여행 이름 변경에 실패했습니다.');
+      setEditingName(originalName);
     }
   };
 
@@ -131,17 +161,12 @@ export default function MyPage({
     <section className="mypage-page-content" style={{ width: '100%' }}>
       {/* 프로필 헤더 */}
       <header className="mypage-profile">
-        {currentUser?.picture ? (
-          <img
-            src={currentUser.picture}
-            alt=""
-            className="mypage-profile-avatar"
-          />
-        ) : (
-          <div className="mypage-profile-avatar mypage-profile-avatar--fallback">
-            {String(currentUser?.name || 'U').slice(0, 1).toUpperCase()}
-          </div>
-        )}
+        <Avatar
+          src={currentUser?.picture}
+          name={currentUser?.name}
+          className="mypage-profile-avatar"
+          fallbackClassName="mypage-profile-avatar--fallback"
+        />
         <div className="mypage-profile-text">
           <h2 className="mypage-profile-name">
             {currentUser?.name || (isLoggedIn ? '사용자' : '로그인이 필요해요')}
@@ -469,34 +494,79 @@ export default function MyPage({
                         marginBottom: 16,
                       }}
                     >
-                      <h3
-                        style={{
-                          margin: 0,
-                          fontSize: 18,
-                          fontWeight: 800,
-                          color: '#111',
-                        }}
+                      {editingTripId === currentTrip.id ? (
+                        <input
+                          className="mypage-trip-name-input"
+                          value={editingName}
+                          onChange={e => setEditingName(e.target.value)}
+                          onBlur={() =>
+                            handleSaveTripName(currentTrip.id, currentTrip.name)
+                          }
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') e.currentTarget.blur();
+                            if (e.key === 'Escape') {
+                              setEditingName(currentTrip.name);
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          maxLength={255}
+                          aria-label="여행 이름"
+                        />
+                      ) : (
+                        <h3
+                          style={{
+                            margin: 0,
+                            fontSize: 18,
+                            fontWeight: 800,
+                            color: '#111',
+                          }}
+                        >
+                          {currentTrip.name}
+                        </h3>
+                      )}
+                      <div
+                        className="mypage-trip-menu"
+                        ref={menuTripId === currentTrip.id ? menuRef : null}
                       >
-                        {currentTrip.name}
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTrip(currentTrip.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#d64545',
-                          fontSize: 24,
-                          fontWeight: 400,
-                          lineHeight: 1,
-                          padding: 4,
-                        }}
-                        title="여행 삭제"
-                        aria-label="여행 삭제"
-                      >
-                        ×
-                      </button>
+                        <button
+                          type="button"
+                          className="mypage-trip-menu-btn"
+                          onClick={() =>
+                            setMenuTripId(id =>
+                              id === currentTrip.id ? null : currentTrip.id,
+                            )
+                          }
+                          title="여행 메뉴"
+                          aria-label="여행 메뉴"
+                        >
+                          ⋯
+                        </button>
+                        {menuTripId === currentTrip.id && (
+                          <div className="mypage-trip-menu-list">
+                            <button
+                              type="button"
+                              className="mypage-trip-menu-item"
+                              onClick={() => {
+                                setEditingTripId(currentTrip.id);
+                                setEditingName(currentTrip.name);
+                                setMenuTripId(null);
+                              }}
+                            >
+                              수정하기
+                            </button>
+                            <button
+                              type="button"
+                              className="mypage-trip-menu-item mypage-trip-menu-item--danger"
+                              onClick={() => {
+                                setMenuTripId(null);
+                                handleDeleteTrip(currentTrip.id);
+                              }}
+                            >
+                              삭제하기
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* 담긴 장소 */}
@@ -513,7 +583,9 @@ export default function MyPage({
                           아직 담긴 장소가 없어요.
                         </p>
                         <p style={{ margin: 0, fontSize: 12 }}>
-                          아래 검색으로 장소를 추가해보세요.
+                          {editingTripId === currentTrip.id
+                            ? '아래 검색으로 장소를 추가해보세요.'
+                            : '⋯ 메뉴의 수정하기로 장소를 추가할 수 있어요.'}
                         </p>
                       </div>
                     ) : (
@@ -607,32 +679,36 @@ export default function MyPage({
                             >
                               보기
                             </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRemovePlaceFromTrip(
-                                  currentTrip.id,
-                                  place.id,
-                                )
-                              }
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: '#ccc',
-                                fontSize: 14,
-                                padding: 2,
-                                flexShrink: 0,
-                              }}
-                            >
-                              ✕
-                            </button>
+                            {editingTripId === currentTrip.id && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRemovePlaceFromTrip(
+                                    currentTrip.id,
+                                    place.id,
+                                  )
+                                }
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: '#ccc',
+                                  fontSize: 14,
+                                  padding: 2,
+                                  flexShrink: 0,
+                                }}
+                                aria-label="장소 빼기"
+                              >
+                                ✕
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {/* 장소 추가 검색 */}
+                    {/* 장소 추가 검색 — 수정하기를 누른 일정에서만 */}
+                    {editingTripId === currentTrip.id && (
                     <div
                       style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16 }}
                     >
@@ -786,7 +862,24 @@ export default function MyPage({
                           );
                         })}
                       </div>
+
+                      <div className="mypage-edit-done-row">
+                        <button
+                          type="button"
+                          className="mypage-edit-done"
+                          onClick={async () => {
+                            await handleSaveTripName(
+                              currentTrip.id,
+                              currentTrip.name,
+                            );
+                            setEditingTripId(null);
+                          }}
+                        >
+                          저장하기
+                        </button>
+                      </div>
                     </div>
+                    )}
                   </div>
                 );
               })}

@@ -48,6 +48,16 @@ export async function createTrip(name) {
   return trip;
 }
 
+export async function renameTrip(tripId, name) {
+  const data = await apiFetch(`/api/me/trips/${tripId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+  const trip = normalizeTrip(data);
+  if (!trip) throw new Error('invalid trip response');
+  return trip;
+}
+
 export async function deleteTrip(tripId) {
   await apiFetch(`/api/me/trips/${tripId}`, { method: 'DELETE' });
 }

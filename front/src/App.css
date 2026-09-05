@@ -9,6 +9,8 @@
   --gray-900: #1f1f1f;
   --gray-800: #2c2c2c;
   --gray-700: #444444;
+  /* 여러 규칙이 참조하지만 정의가 없어 무효 선언이던 것을 램프에 맞춰 추가 */
+  --gray-600: #5c5c5c;
   --gray-500: #777777;
   --gray-400: #999999;
   --gray-300: #cccccc;
@@ -346,7 +348,113 @@ body {
   flex-direction: column;
 }
 
-.mypage-page-content /* ── 마이페이지 프로필 헤더 ── */
+.mypage-page-content .mypage-trip-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--black);
+  outline: none;
+  transition: border-color var(--tr-fast), background var(--tr-fast);
+}
+
+.mypage-trip-name-input:focus {
+  background: var(--white);
+  border-color: var(--black);
+}
+
+/* ── 마이페이지 여행 일정 카드 메뉴(⋯) ── */
+.mypage-trip-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.mypage-trip-menu-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: background var(--tr-fast), color var(--tr-fast);
+}
+
+.mypage-trip-menu-btn:hover {
+  background: var(--gray-100);
+  color: var(--black);
+}
+
+.mypage-trip-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 132px;
+  padding: 6px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+}
+
+.mypage-trip-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--gray-800);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--tr-fast);
+}
+
+.mypage-trip-menu-item:hover {
+  background: var(--gray-100);
+}
+
+.mypage-trip-menu-item--danger {
+  color: #d64545;
+}
+
+.mypage-edit-done-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.mypage-edit-done {
+  height: 30px;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: color var(--tr-fast);
+}
+
+.mypage-edit-done:hover {
+  color: var(--black);
+}
+
+/* ── 마이페이지 프로필 헤더 ── */
 .mypage-profile {
   display: flex;
   align-items: center;
