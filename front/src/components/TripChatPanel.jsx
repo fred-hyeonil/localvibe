@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { createPortal, flushSync } from 'react-dom';
 import ComparisonModal from './ComparisonModal';
 import TripVisualModal from './TripVisualModal';
+import LineIcon from './ui/LineIcon';
 import {
   buildCurrentSchedulePayload,
   getMaxLocationsByDuration,
@@ -171,7 +172,7 @@ const VISUAL_TITLE_MAP = {
  */
 const INITIAL_MESSAGE = {
   role: 'assistant',
-  text: '어떤 여행을 계획하고 계신가요? 예: "서울 1일 카페 여행", "부산 2박 3일"',
+  text: '어떤 여행을 계획하고 계신가요?',
 };
 
 function buildRecentMessagesPayload(messages) {
@@ -673,8 +674,10 @@ function TripChatPanelInner({
             className="trip-chat-new-btn"
             onClick={handleNewChatClick}
             disabled={isLoading}
+            title="새 채팅"
+            aria-label="새 채팅"
           >
-            새 채팅
+            <LineIcon name="refresh" className="trip-chat-new-icon" />
           </button>
         </div>
       </div>
@@ -795,8 +798,8 @@ function TripChatPanelInner({
           type="text"
           placeholder={
             tripDuration
-              ? '자유롭게 말씀해 주세요 (예: 2일차만 맛집 위주, 절 빼고 여유롭게)'
-              : '예: 부산 2박 3일, 친구랑 맛집·카페 위주'
+              ? '자유롭게 말씀해 주세요 (예: 2일차는 맛집 위주로 여유롭게)'
+              : '예: 담양 1박 2일, 부모님이랑 조용한 곳 위주로'
           }
           value={input}
           onChange={event => setInput(event.target.value)}

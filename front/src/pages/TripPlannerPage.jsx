@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RoadMap from '../components/RoadMap';
 import TripChatPanel from '../components/TripChatPanel';
-import TripPlaceSearch from '../components/TripPlaceSearch';
 import TripSelectModal from '../components/TripSelectModal';
 import RegionModal from '../components/RegionModal';
 import { normalizeRegionMediaFields, resolveBackendMediaUrl } from '../utils/apiMediaUrl';
@@ -534,64 +533,42 @@ function TripPlannerPage({
         <div>
           <h2>여행 플래너</h2>
         </div>
-        {(tripDuration || roadmapLocations.length > 0) && (
-          <div className="trip-planner-stats">
-            {tripDuration ? (
-              <span className="trip-planner-chip">
-                {tripDuration.nights}박 {tripDuration.days}일
-                {Number.isFinite(maxLocations)
-                  ? ` · ${roadmapLocations.length}/${maxLocations}곳`
-                  : ` · ${roadmapLocations.length}곳`}
-              </span>
-            ) : (
-              <span className="trip-planner-chip">
-                {roadmapLocations.length}곳
-              </span>
-            )}
-            {roadmapLocations.length > 0 ? (
-              <>
-                <button
-                  type="button"
-                  className="trip-planner-save-btn"
-                  onClick={() => {
-                    if (!currentUser) {
-                      onRequireLogin?.();
-                      return;
-                    }
-                    setSaveModalOpen(true);
-                  }}
-                >
-                  마이페이지에 저장
-                </button>
-                <button
-                  type="button"
-                  className="trip-planner-clear-btn"
-                  onClick={handleClearRoadmap}
-                  title="일정 전체 삭제"
-                >
-                  전체 삭제
-                </button>
-              </>
-            ) : null}
-          </div>
-        )}
+        {/* 장소가 없어도 자리를 유지해 레이아웃이 튀지 않게 한다. */}
+        <div className="trip-planner-stats">
+          <button
+            type="button"
+            className="trip-planner-save-btn"
+            disabled={roadmapLocations.length === 0}
+            onClick={() => {
+              if (!currentUser) {
+                onRequireLogin?.();
+                return;
+              }
+              setSaveModalOpen(true);
+            }}
+          >
+            마이페이지에 저장
+          </button>
+          <button
+            type="button"
+            className="trip-planner-clear-btn"
+            disabled={roadmapLocations.length === 0}
+            onClick={handleClearRoadmap}
+            title="일정 전체 삭제"
+          >
+            전체 삭제
+          </button>
+        </div>
       </div>
 
       <div className="trip-planner-main">
         <div className="trip-planner-left">
-          <TripPlaceSearch
-            regionMap={map}
-            currentLocationIds={roadmapLocations.map(l => l.id)}
-            maxLocations={maxLocations}
-            onAddPlace={handleAddPlaceToRoadmap}
-          />
-
           <div className="sroadmap-wrapper" id="roadmap-container">
             {roadmapLocations.length === 0 ? (
               <div className="sroadmap-empty">
-                <p>채팅이나 위 검색으로 여행 조건·장소를 넣어 보세요.</p>
+                <p>오른쪽 채팅으로 여행 조건과 장소를 넣어 보세요.</p>
                 <p className="sroadmap-empty-hint">
-                  예: &quot;부산 2박 3일, 친구랑 트렌디하게, 절은 빼고&quot;
+                  예: &quot;여수 1박 2일, 친구랑 바다 보면서 여유롭게&quot;
                 </p>
               </div>
             ) : (

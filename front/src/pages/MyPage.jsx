@@ -1038,7 +1038,7 @@ export default function MyPage({
               type="text"
               value={newTripName}
               onChange={e => setNewTripName(e.target.value)}
-              placeholder="예: 부산 주말 여행"
+              placeholder="예: 여수 주말 여행"
               autoFocus
             />
             <div className="mypage-trip-create-modal-actions">

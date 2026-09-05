@@ -1674,9 +1674,9 @@ body {
 .trip-planner-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   width: 100%;
-  margin-top: 50px;
+  margin-top: 12px;
   min-height: 560px;
 }
 
@@ -1684,7 +1684,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 14px;
+  padding-bottom: 8px;
 }
 
 .trip-planner-header h2 {
@@ -1715,6 +1715,7 @@ body {
   font-weight: 600;
   color: var(--gray-600);
 }
+
 .trip-planner-chip--action {
   background: #eef2ff;
   border-color: #c7d2fe;
@@ -1822,7 +1823,7 @@ body {
     box-shadow: none;
   }
   40% {
-    box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.45);
+    box-shadow: 0 0 0 3px var(--gray-300);
   }
 }
 .trip-planner-map-btn {
@@ -1841,18 +1842,22 @@ body {
 }
 
 .trip-planner-save-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--gray-800);
-  background: var(--black);
-  color: var(--white);
-  border-radius: 6px;
-  font-size: 12px;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--gray-700);
+  font-family: inherit;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  font-family: inherit;
+  transition: background var(--tr-fast), color var(--tr-fast);
 }
-.trip-planner-save-btn:hover {
-  opacity: 0.9;
+
+.trip-planner-save-btn:hover:not(:disabled) {
+  background: var(--gray-100);
+  color: var(--black);
 }
 .trip-place-search {
   margin-bottom: 4px;
@@ -1984,7 +1989,7 @@ body {
   opacity: 0.45;
 }
 .sroadmap-item--drop-before {
-  box-shadow: inset 0 3px 0 var(--primary, #4f6ef7);
+  box-shadow: inset 0 3px 0 var(--black);
 }
 .sroadmap-drag-handle {
   display: flex;
@@ -2009,31 +2014,33 @@ body {
   line-height: 1.4;
 }
 
+/* 파괴적 동작이라 평소엔 조용하게, 호버에서만 빨갛게 */
 .trip-planner-clear-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--gray-200);
-  background: var(--white);
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #bb2222;
-  cursor: pointer;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
   font-family: inherit;
-  transition:
-    background var(--tr-fast),
-    border-color var(--tr-fast);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: background var(--tr-fast), color var(--tr-fast);
 }
 
-.trip-planner-clear-btn:hover {
-  background: #fff5f5;
-  border-color: #bb2222;
+.trip-planner-clear-btn:hover:not(:disabled) {
+  background: var(--gray-100);
+  color: #d64545;
 }
 
 .trip-planner-main {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr);
   gap: 16px;
-  min-height: 580px;
+  /* 화면 높이에 맞춰 늘어난다. 헤더(72) + 페이지 상단 여백·헤더 영역을 뺀 값. */
+  height: calc(100vh - 215px);
+  min-height: 560px;
 }
 
 .trip-planner-left {
@@ -2044,7 +2051,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: 600px;
+  height: 100%;
   overflow-y: auto;
   scrollbar-width: none;
   overflow-x: hidden;
@@ -2083,13 +2090,15 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  height: 600px;
-  max-height: 600px;
+  height: 100%;
   min-height: 0;
-  align-self: start;
-  position: sticky;
-  top: 16px;
   overflow: hidden;
+  /* 스크롤바는 좌측 패널과 동일하게 감춘다 */
+  scrollbar-width: none;
+}
+
+.trip-planner-right::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── 로드맵 ── */
@@ -2103,11 +2112,9 @@ body {
   opacity: 0.65;
 }
 
+/* 좌측 패널 자체가 카드라 안쪽에 또 테두리를 두지 않는다 */
 .sroadmap-timeline {
-  border-radius: 8px;
-  background: var(--white);
-  border: 1px solid var(--gray-200);
-  padding: 14px;
+  padding: 0;
 }
 
 .sroadmap-timeline-list {
@@ -2117,23 +2124,10 @@ body {
   gap: 20px;
 }
 
-.sroadmap-timeline-list::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--gray-200);
-}
-
 .sroadmap-day-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-left: 4px;
-  padding-left: 14px;
-  border-left: 3px solid #3b82f6;
 }
 
 .sroadmap-day-header {
@@ -2141,31 +2135,62 @@ body {
   align-items: baseline;
   gap: 8px;
   margin: 0;
-  padding-left: 16px;
   font-size: 13px;
   font-weight: 800;
-  color: #1d4ed8;
+  color: var(--black);
   letter-spacing: -0.02em;
 }
 .sroadmap-day-count {
   font-size: 12px;
   font-weight: 600;
-  color: #3b82f6;
-  opacity: 0.9;
+  color: var(--gray-400);
 }
 
 .sroadmap-item {
   border: 0;
   background: transparent;
-  padding: 0;
+  padding: 6px 6px 6px 0;
   margin: 0;
   display: grid;
-  grid-template-columns: 12px 120px minmax(0, 1fr);
+  grid-template-columns: 12px 22px auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   text-align: left;
   border-radius: 8px;
-  transition: transform 0.12s ease;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.sroadmap-item:hover {
+  background: var(--gray-50);
+}
+
+/* 순번 — 타임라인 위의 작은 노드 */
+.sroadmap-order {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray-700);
+  font-variant-numeric: tabular-nums;
+}
+
+.sroadmap-item.selected .sroadmap-order {
+  background: var(--black);
+  color: var(--white);
+}
+
+/* 주소 한 줄 */
+.sroadmap-address {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--gray-400);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .sroadmap-marker {
@@ -2287,8 +2312,8 @@ body {
 }
 
 .sroadmap-thumb-wrap {
-  width: 100%;
-  aspect-ratio: 4 / 3;
+  width: 56px;
+  height: 56px;
   border-radius: 6px;
   overflow: hidden;
   background: var(--gray-100);
@@ -2327,20 +2352,18 @@ body {
   font-weight: 700;
   line-height: 1.3;
 }
-.sroadmap-description {
-  margin: 3px 0 0;
-  color: var(--gray-500);
-  font-size: 11px;
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* 검색을 걷어낸 뒤로 좌측 패널을 로드맵이 다 쓴다 → 빈 안내는 가운데에 */
+.sroadmap-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .sroadmap-empty {
   width: 100%;
-  height: 260px;
+  flex: 1;
+  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2833,9 +2856,15 @@ body {
 }
 
 .sroadmap-period-band {
-  margin-bottom: 12px;
-  padding-left: 8px;
-  border-left: 3px solid var(--gray-200);
+  margin-bottom: 14px;
+}
+
+/* 시간대 구분 — 라벨 옆으로 가는 선을 그어 그룹을 드러낸다 */
+.sroadmap-period-band-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gray-200);
 }
 
 .sroadmap-period-band-head {
@@ -2847,9 +2876,10 @@ body {
 }
 
 .sroadmap-period-band-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  color: #2563eb;
+  letter-spacing: 0.06em;
+  color: var(--gray-500);
 }
 
 .sroadmap-period-band-head--inline {
@@ -2858,7 +2888,7 @@ body {
 
 .sroadmap-period-band-head--morning .sroadmap-period-band-label,
 .sroadmap-period-band-head--afternoon .sroadmap-period-band-label {
-  color: #2563eb;
+  color: var(--gray-500);
 }
 
 .sroadmap-period-band-head--flex .sroadmap-period-band-label {
@@ -3385,17 +3415,25 @@ body {
   cursor: not-allowed;
 }
 
+.trip-planner-save-btn:disabled,
+.trip-planner-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── 반응형 ── */
 @media (max-width: 900px) {
   .trip-planner-main {
     grid-template-columns: 1fr;
+    height: auto;
   }
   .trip-planner-right {
     order: -1;
     position: static;
-    max-height: 420px;
+    height: 420px;
   }
   .trip-planner-left {
+    height: auto;
     max-height: none;
   }
   .sroadmap-item {
@@ -3436,16 +3474,17 @@ body {
   }
   .trip-planner-main {
     grid-template-columns: 1fr;
+    height: auto;
     min-height: auto;
   }
   .trip-planner-left,
   .trip-planner-right {
+    height: auto;
     max-height: none;
   }
   .trip-planner-right {
     order: -1;
-    height: auto;
-    max-height: 50vh;
+    height: 50vh;
   }
   .sroadmap-item {
     grid-template-columns: 10px 88px minmax(0, 1fr);
@@ -4796,9 +4835,12 @@ body {
 
 .trip-chat-new-btn {
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 30px;
   height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
+  padding: 0;
+  border-radius: 50%;
   border: 1px solid var(--gray-200);
   background: var(--white);
   color: var(--gray-700);
@@ -4821,6 +4863,11 @@ body {
 .trip-chat-new-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.trip-chat-new-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .trip-chat-help-btn {
