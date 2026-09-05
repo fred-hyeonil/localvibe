@@ -707,7 +707,8 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  align-items: stretch;
+  /* 카드마다 담긴 장소 수가 달라, 옆 카드 높이에 끌려가지 않도록 각자 높이를 갖게 한다. */
+  align-items: start;
 }
 
 .mypage-trip-list-layout .mypage-add-trip-area {

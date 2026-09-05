@@ -27,6 +27,7 @@ export default function MyPage({
   onCreateTrip,
   onDeleteTrip,
   onRenameTrip,
+  onReorderTripPlaces,
   onAddPlaceToTrip,
   onRemovePlaceFromTrip,
   onToggleScrap,
@@ -47,6 +48,10 @@ export default function MyPage({
   const [editingTripId, setEditingTripId] = useState(null);
   const [menuTripId, setMenuTripId] = useState(null);
   const [editingName, setEditingName] = useState('');
+  // 드래그로 순서 바꾸기 (수정 모드에서만)
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [hoverPlaceKey, setHoverPlaceKey] = useState(null);
   const menuRef = useRef(null);
 
   // 케밥 메뉴 바깥 클릭 시 닫기
@@ -81,6 +86,24 @@ export default function MyPage({
       window.alert('여행 만들기에 실패했습니다.');
     } finally {
       setIsCreatingTrip(false);
+    }
+  };
+
+  const handleDropPlace = async (trip, toIndex) => {
+    const from = dragIndex;
+    setDragIndex(null);
+    setDragOverIndex(null);
+    if (from == null || from === toIndex) return;
+    const next = [...trip.places];
+    const [moved] = next.splice(from, 1);
+    next.splice(toIndex, 0, moved);
+    try {
+      await onReorderTripPlaces?.(
+        trip.id,
+        next.map(p => p.id),
+      );
+    } catch {
+      window.alert('순서 변경에 실패했습니다.');
     }
   };
 
@@ -597,19 +620,104 @@ export default function MyPage({
                           marginBottom: 20,
                         }}
                       >
-                        {currentTrip.places.map((place, idx) => (
+                        {currentTrip.places.map((place, idx) => {
+                          const editing = editingTripId === currentTrip.id;
+                          return (
                           <div
                             key={place.id}
+                            role={editing ? undefined : 'button'}
+                            tabIndex={editing ? undefined : 0}
+                            onClick={
+                              editing ? undefined : () => onOpenRegion?.(place)
+                            }
+                            onKeyDown={
+                              editing
+                                ? undefined
+                                : e => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      onOpenRegion?.(place);
+                                    }
+                                  }
+                            }
+                            onMouseEnter={() =>
+                              setHoverPlaceKey(`${currentTrip.id}-${place.id}`)
+                            }
+                            onMouseLeave={() => setHoverPlaceKey(null)}
+                            draggable={editing}
+                            onDragStart={
+                              editing ? () => setDragIndex(idx) : undefined
+                            }
+                            onDragOver={
+                              editing
+                                ? e => {
+                                    e.preventDefault();
+                                    setDragOverIndex(idx);
+                                  }
+                                : undefined
+                            }
+                            onDragLeave={
+                              editing
+                                ? () =>
+                                    setDragOverIndex(i => (i === idx ? null : i))
+                                : undefined
+                            }
+                            onDrop={
+                              editing
+                                ? e => {
+                                    e.preventDefault();
+                                    handleDropPlace(currentTrip, idx);
+                                  }
+                                : undefined
+                            }
+                            onDragEnd={
+                              editing
+                                ? () => {
+                                    setDragIndex(null);
+                                    setDragOverIndex(null);
+                                  }
+                                : undefined
+                            }
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               gap: 10,
                               padding: '10px 12px',
-                              background: '#f8f8f8',
+                              background:
+                                hoverPlaceKey === `${currentTrip.id}-${place.id}`
+                                  ? '#f0f0f0'
+                                  : '#f8f8f8',
                               borderRadius: 8,
-                              border: '1px solid #eee',
+                              border: '1px solid',
+                              borderColor:
+                                hoverPlaceKey === `${currentTrip.id}-${place.id}`
+                                  ? '#ddd'
+                                  : '#eee',
+                              cursor: editing ? 'grab' : 'pointer',
+                              opacity: editing && dragIndex === idx ? 0.45 : 1,
+                              borderTopColor:
+                                editing &&
+                                dragOverIndex === idx &&
+                                dragIndex !== idx
+                                  ? '#111'
+                                  : '#eee',
+                              transition:
+                                'background 150ms ease, border-color 150ms ease',
                             }}
                           >
+                            {editing && (
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  fontSize: 13,
+                                  color: '#bbb',
+                                  cursor: 'grab',
+                                  lineHeight: 1,
+                                }}
+                              >
+                                ⠿
+                              </span>
+                            )}
                             <span
                               style={{
                                 fontSize: 12,
@@ -662,32 +770,16 @@ export default function MyPage({
                                 {place.region || place.address || ''}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onOpenRegion?.(place)}
-                              style={{
-                                background: 'none',
-                                border: '1px solid #e5e5e5',
-                                borderRadius: 6,
-                                padding: '3px 8px',
-                                fontSize: 11,
-                                cursor: 'pointer',
-                                color: '#555',
-                                fontFamily: 'inherit',
-                                flexShrink: 0,
-                              }}
-                            >
-                              보기
-                            </button>
                             {editingTripId === currentTrip.id && (
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={e => {
+                                  e.stopPropagation();
                                   handleRemovePlaceFromTrip(
                                     currentTrip.id,
                                     place.id,
-                                  )
-                                }
+                                  );
+                                }}
                                 style={{
                                   background: 'none',
                                   border: 'none',
@@ -703,7 +795,8 @@ export default function MyPage({
                               </button>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 

@@ -246,6 +246,7 @@ export default function App() {
     onCreateTrip: handleCreateTrip,
     onDeleteTrip: handleDeleteTrip,
     onRenameTrip: handleRenameTrip,
+    onReorderTripPlaces: handleReorderTripPlaces,
     onAddPlaceToTrip: handleAddPlaceToTrip,
     onRemovePlaceFromTrip: handleRemovePlaceFromTrip,
   } = useTrips();
@@ -682,6 +683,7 @@ export default function App() {
               onCreateTrip={handleCreateTrip}
               onDeleteTrip={handleDeleteTrip}
               onRenameTrip={handleRenameTrip}
+              onReorderTripPlaces={handleReorderTripPlaces}
               onAddPlaceToTrip={handleAddPlaceToTrip}
               onRemovePlaceFromTrip={handleRemovePlaceFromTrip}
               onToggleScrap={handleToggleScrap}
