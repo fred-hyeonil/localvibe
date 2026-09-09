@@ -8,7 +8,7 @@ import random
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func, or_, select
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, case, func, or_, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.repositories.db import Base
@@ -230,6 +230,40 @@ def find_place_ids_for_locality_hints(session, keywords: list[str], *, limit: in
     stmt = select(Place.place_id).where(or_(*conds)).distinct().limit(limit)
     rows = session.execute(stmt).scalars().all()
     return [int(r) for r in rows]
+
+
+def search_places_by_name(session, query: str, *, limit: int = 8) -> list[dict[str, Any]]:
+    """장소 이름 자동완성용 — 이름/지역/주소 부분 일치, 이름이 먼저 걸린 것을 위로."""
+    q = str(query or "").strip()
+    if len(q) < 1:
+        return []
+    like = f"%{q}%"
+    starts = f"{q}%"
+    stmt = (
+        select(Place.place_id, Place.name, Place.region, Place.address)
+        .where(
+            or_(
+                Place.name.like(like),
+                Place.region.like(like),
+                Place.address.like(like),
+            )
+        )
+        # 이름이 검색어로 시작 → 이름에 포함 → 그 외 순
+        .order_by(
+            case((Place.name.like(starts), 0), (Place.name.like(like), 1), else_=2),
+            func.char_length(Place.name),
+        )
+        .limit(limit)
+    )
+    return [
+        {
+            "id": int(pid),
+            "name": str(name or ""),
+            "region": str(region or ""),
+            "address": str(address or ""),
+        }
+        for pid, name, region, address in session.execute(stmt).all()
+    ]
 
 
 def get_as_region_dict(session, place_id: int) -> dict[str, Any] | None:

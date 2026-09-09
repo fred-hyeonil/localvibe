@@ -77,5 +77,6 @@ def init_db() -> None:
     from app.repositories import scraps_store  # noqa: F401
     from app.repositories import trips_store  # noqa: F401
     from app.repositories import users_store  # noqa: F401
+    from app.repositories import community_store  # noqa: F401
 
     Base.metadata.create_all(bind=get_engine())
