@@ -52,6 +52,34 @@ const BODY_PLACEHOLDER = [
 const boardName = id =>
   COMMUNITY_BOARDS.find(b => b.id === id)?.name || '전체';
 
+/** 작성 중인 글 임시 저장 — 실수로 나가도 돌아오면 이어서 쓸 수 있게. */
+const draftKey = id => `lv_write_draft_${id}`;
+
+function readDraft(id) {
+  try {
+    const raw = sessionStorage.getItem(draftKey(id));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(id, draft) {
+  try {
+    sessionStorage.setItem(draftKey(id), JSON.stringify(draft));
+  } catch {
+    /* 저장 공간이 없으면 그냥 넘어간다 */
+  }
+}
+
+function clearDraft(id) {
+  try {
+    sessionStorage.removeItem(draftKey(id));
+  } catch {
+    /* noop */
+  }
+}
+
 /** 글 주소 — 받은 사람이 그 글로 바로 들어옵니다. */
 function postShareUrl(postId) {
   const { origin } = window.location;
@@ -878,24 +906,29 @@ function PostDetail({
 }
 
 /** 글쓰기 — 모달이 아니라 커뮤니티 안의 전용 화면. */
-function WritePage({ onCancel, onSubmit, editing = null }) {
-  // editing이 있으면 수정 모드 — 기존 값으로 채워 시작한다.
-  const [boardId, setBoardId] = useState(editing?.boardId || BOARD_UNSET);
-  const [title, setTitle] = useState(editing?.title || '');
-  const [place, setPlace] = useState(editing?.place || '');
+function WritePage({ onCancel, onSubmit, editing = null, draftId = 'new' }) {
+  // 임시 저장본이 있으면 그걸 먼저, 없으면 수정 대상 글의 값으로 시작한다.
+  const saved = readDraft(draftId);
+  const [boardId, setBoardId] = useState(
+    saved?.boardId ?? editing?.boardId ?? BOARD_UNSET,
+  );
+  const [title, setTitle] = useState(saved?.title ?? editing?.title ?? '');
+  const [place, setPlace] = useState(saved?.place ?? editing?.place ?? '');
   // 갤러리 장소를 고르면 placeId가 채워집니다. 직접 입력한 값은 이름만 저장됩니다.
-  const [placeId, setPlaceId] = useState(editing?.placeId ?? null);
+  const [placeId, setPlaceId] = useState(saved?.placeId ?? editing?.placeId ?? null);
   const [suggestions, setSuggestions] = useState([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const placeBoxRef = useRef(null);
-  const [body, setBody] = useState(editing?.body || '');
+  const [body, setBody] = useState(saved?.body ?? editing?.body ?? '');
   // 수정 모드에서 이미 올라가 있는 사진 — 여기서 빼면 저장할 때 삭제됩니다.
   const [keptImages, setKeptImages] = useState(editing?.images || []);
   // 새로 고른 사진은 등록할 때 업로드해 URL을 함께 저장합니다.
   const [photos, setPhotos] = useState([]);
   const [photoMsg, setPhotoMsg] = useState('');
   const [dragging, setDragging] = useState(false);
-  const [anonymous, setAnonymous] = useState(Boolean(editing?.anonymous));
+  const [anonymous, setAnonymous] = useState(
+    Boolean(saved?.anonymous ?? editing?.anonymous),
+  );
   const fileInputRef = useRef(null);
   const photosRef = useRef(photos);
   photosRef.current = photos;
@@ -933,6 +966,44 @@ function WritePage({ onCancel, onSubmit, editing = null }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [suggestOpen]);
+
+  // 처음 값과 달라졌는지 — 나갈 때 물어볼지 판단하는 기준
+  const isDirty =
+    boardId !== (editing?.boardId || BOARD_UNSET) ||
+    title !== (editing?.title || '') ||
+    place !== (editing?.place || '') ||
+    body !== (editing?.body || '') ||
+    anonymous !== Boolean(editing?.anonymous) ||
+    photos.length > 0 ||
+    keptImages.length !== (editing?.images?.length || 0);
+
+  // 입력을 임시 저장해 둔다 — 실수로 나가도 돌아오면 이어서 쓸 수 있다.
+  useEffect(() => {
+    if (!isDirty) {
+      clearDraft(draftId);
+      return;
+    }
+    saveDraft(draftId, { boardId, title, place, placeId, body, anonymous });
+  }, [draftId, isDirty, boardId, title, place, placeId, body, anonymous]);
+
+  // 새로고침·탭 닫기에는 브라우저 기본 경고를 띄운다.
+  useEffect(() => {
+    if (!isDirty) return undefined;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleCancel = () => {
+    if (isDirty && !window.confirm('작성 중인 내용이 있어요. 나가시겠어요?')) {
+      return;
+    }
+    clearDraft(draftId);
+    onCancel?.();
+  };
 
   // 언마운트 시 남은 objectURL 회수 (해제하지 않으면 메모리에 계속 남음)
   useEffect(
@@ -986,7 +1057,7 @@ function WritePage({ onCancel, onSubmit, editing = null }) {
   return (
     <div className="cm-write">
       <div className="cm-write-main">
-        <button type="button" className="cm-back-btn" onClick={onCancel}>
+        <button type="button" className="cm-back-btn" onClick={handleCancel}>
           ← 목록으로
         </button>
 
@@ -1151,7 +1222,7 @@ function WritePage({ onCancel, onSubmit, editing = null }) {
         </div>
 
         <div className="cm-write-actions">
-          <button type="button" className="cm-btn" onClick={onCancel}>
+          <button type="button" className="cm-btn" onClick={handleCancel}>
             취소
           </button>
           <button
@@ -1181,6 +1252,7 @@ function WritePage({ onCancel, onSubmit, editing = null }) {
                     ...uploaded,
                   ],
                 });
+                clearDraft(draftId);
               } catch (err) {
                 window.alert(
                   err?.message === 'not_logged_in'
@@ -1209,7 +1281,7 @@ export default function CommunityPage() {
   const [trending, setTrending] = useState([]);
 
   const [activeBoard, setActiveBoard] = useState('all');
-  const [sort, setSort] = useState('hot');
+  const [sort, setSort] = useState('new');
   const [query, setQuery] = useState('');
   // 입력할 때마다 서버를 부르지 않도록 검색어만 잠시 늦춘다.
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -1229,9 +1301,50 @@ export default function CommunityPage() {
     setSearchParams(next, { replace });
   };
 
-  const [isWriteOpen, setIsWriteOpen] = useState(false);
+  /**
+   * 글쓰기도 URL(?write=)에 담는다 — 브라우저 뒤로가기로 닫히게 하기 위해서다.
+   * write=new 는 새 글, write=<id> 는 그 글 수정.
+   */
+  const writeParam = searchParams.get('write');
+  const isWriteOpen = Boolean(writeParam);
+
+  const setWriteParam = (value, { replace = false } = {}) => {
+    const next = new URLSearchParams(searchParams);
+    if (value == null) next.delete('write');
+    else next.set('write', String(value));
+    if (value != null) next.delete('post'); // 글쓰기 중에는 상세를 닫는다
+    setSearchParams(next, { replace });
+  };
+
   // 수정할 글 — 있으면 글쓰기 화면이 수정 모드로 열린다.
   const [editingPost, setEditingPost] = useState(null);
+
+  // 새로고침·딥링크로 write=<id> 로 들어온 경우 글을 채워 넣는다.
+  useEffect(() => {
+    if (!writeParam || writeParam === 'new') {
+      setEditingPost(null);
+      return undefined;
+    }
+    const id = Number(writeParam);
+    const known = posts.find(p => p.id === id) || null;
+    if (known) {
+      setEditingPost(known);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchPost(id)
+      .then(detail => {
+        if (!cancelled) setEditingPost(detail);
+      })
+      .catch(() => {
+        if (!cancelled) setWriteParam(null, { replace: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // posts 변화로 매번 다시 부르지 않도록 writeParam 만 본다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [writeParam]);
   // 공유 결과 등 짧은 안내
   const [toast, setToast] = useState('');
 
@@ -1256,8 +1369,9 @@ export default function CommunityPage() {
   }, [query]);
 
   // 조건이 바뀌면 첫 페이지부터 다시 불러온다.
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async ({ silent = false } = {}) => {
+    // silent: 목록으로 돌아올 때 등 화면을 비우지 않고 갱신만 한다.
+    if (!silent) setLoading(true);
     setLoadError('');
     try {
       const { posts: rows, nextCursor: cursor } = await fetchPosts({
@@ -1269,11 +1383,14 @@ export default function CommunityPage() {
       setPosts(rows);
       setNextCursor(cursor);
     } catch {
-      setLoadError('글을 불러오지 못했습니다.');
-      setPosts([]);
-      setNextCursor(null);
+      // 조용한 갱신이 실패하면 보고 있던 목록을 그대로 둔다.
+      if (!silent) {
+        setLoadError('글을 불러오지 못했습니다.');
+        setPosts([]);
+        setNextCursor(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [activeBoard, sort, debouncedQuery]);
 
@@ -1341,15 +1458,28 @@ export default function CommunityPage() {
   };
 
   // 상세 → 목록으로 돌아오면(버튼이든 브라우저 뒤로가기든) 보던 위치로 복원한다.
+  // 글쓰기 화면을 벗어나면(취소·뒤로가기) 보던 위치로 되돌린다.
+  const prevWriteParam = useRef(writeParam);
+  useEffect(() => {
+    if (prevWriteParam.current && !writeParam) {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: listScrollY.current });
+      });
+    }
+    prevWriteParam.current = writeParam;
+  }, [writeParam]);
+
   const prevOpenPostId = useRef(openPostId);
   useEffect(() => {
     if (prevOpenPostId.current != null && openPostId == null) {
+      // 상세에서 달린 댓글·투표나 그 사이 올라온 글이 목록에도 보이도록 다시 불러온다.
+      reload({ silent: true });
       requestAnimationFrame(() => {
         window.scrollTo({ top: listScrollY.current });
       });
     }
     prevOpenPostId.current = openPostId;
-  }, [openPostId]);
+  }, [openPostId, reload]);
 
   const requireLogin = message => {
     window.alert(message);
@@ -1414,7 +1544,7 @@ export default function CommunityPage() {
   const startEditPost = post => {
     listScrollY.current = window.scrollY;
     setEditingPost(post);
-    setIsWriteOpen(true);
+    setWriteParam(post.id);
     window.scrollTo({ top: 0 });
   };
 
@@ -1431,7 +1561,7 @@ export default function CommunityPage() {
       });
       setPosts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
       setOpenPost(prev => (prev && prev.id === updated.id ? updated : prev));
-      setIsWriteOpen(false);
+      setWriteParam(null, { replace: true });
       setEditingPost(null);
     } catch (err) {
       window.alert(
@@ -1453,8 +1583,7 @@ export default function CommunityPage() {
         anonymous: draft.anonymous,
         images: draft.images || [],
       });
-      setIsWriteOpen(false);
-      setOpenPostId(null, { replace: true });
+      setWriteParam(null, { replace: true });
       setActiveBoard(draft.boardId);
       setSort('new');
       setPosts(prev => [created, ...prev.filter(p => p.id !== created.id)]);
@@ -1503,11 +1632,17 @@ export default function CommunityPage() {
 
   // 글쓰기는 목록/상세를 덮는 전용 화면
   if (isWriteOpen) {
+    // write=<id> 로 들어왔는데 아직 글을 못 받았으면 잠시 기다린다.
+    if (writeParam !== 'new' && !editingPost) {
+      return <p className="cm-empty">글을 불러오는 중…</p>;
+    }
     return (
       <WritePage
+        key={writeParam}
+        draftId={writeParam}
         editing={editingPost}
         onCancel={() => {
-          setIsWriteOpen(false);
+          setWriteParam(null, { replace: true });
           setEditingPost(null);
           requestAnimationFrame(() => {
             window.scrollTo({ top: listScrollY.current });
@@ -1590,10 +1725,10 @@ export default function CommunityPage() {
                   type="button"
                   className="cm-btn cm-btn--primary cm-toolbar-write"
                   onClick={() => {
-              listScrollY.current = window.scrollY;
-              setIsWriteOpen(true);
-              window.scrollTo({ top: 0 });
-            }}
+                    listScrollY.current = window.scrollY;
+                    setWriteParam('new');
+                    window.scrollTo({ top: 0 });
+                  }}
                 >
                   글 쓰기
                 </button>
@@ -1675,7 +1810,7 @@ export default function CommunityPage() {
             className="cm-btn cm-btn--primary cm-btn--block"
             onClick={() => {
               listScrollY.current = window.scrollY;
-              setIsWriteOpen(true);
+              setWriteParam('new');
               window.scrollTo({ top: 0 });
             }}
           >

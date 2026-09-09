@@ -21,8 +21,8 @@ export const COMMUNITY_BOARDS = [
 ];
 
 export const COMMUNITY_SORTS = [
-  { id: 'hot', label: '인기', icon: '△' },
   { id: 'new', label: '최신', icon: '✦' },
+  { id: 'hot', label: '인기', icon: '△' },
   { id: 'top', label: '베스트', icon: '↑' },
   { id: 'comments', label: '댓글순', icon: '○' },
 ];
