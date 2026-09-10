@@ -634,6 +634,19 @@ body {
   color: var(--gray-500);
 }
 
+/* 따봉 아이콘과 숫자를 한 덩어리로 — 커뮤니티 액션 줄과 같은 간격 */
+.mypage-activity-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mypage-activity-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
 .mypage-empty {
   position: relative;
   flex: 1;

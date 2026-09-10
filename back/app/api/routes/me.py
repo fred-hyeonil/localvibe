@@ -230,6 +230,7 @@ def list_my_community_comments(user: AuthUser = Depends(get_current_user)):
                     body=row.body,
                     createdAt=row.created_at.isoformat() if row.created_at else None,
                     anonymous=bool(row.is_anonymous),
+                    likes=int(row.likes_count or 0),
                 )
             )
         return MyCommentListResponse(comments=items)

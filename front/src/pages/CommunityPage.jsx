@@ -1341,15 +1341,29 @@ export default function CommunityPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [trending, setTrending] = useState([]);
 
-  const [activeBoard, setActiveBoard] = useState('all');
-  const [sort, setSort] = useState('new');
-  const [query, setQuery] = useState('');
-  // 입력할 때마다 서버를 부르지 않도록 검색어만 잠시 늦춘다.
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-
   // 상세 글은 URL(?post=)이 단일 소스 — 새로고침·뒤로가기·공유가 그대로 동작한다.
   const [searchParams, setSearchParams] = useSearchParams();
   const openPostId = Number(searchParams.get('post')) || null;
+
+  // ?q=는 밖에서 들어올 때만 쓰는 입력값이다(장소 상세의 "커뮤니티에서 더 보기" 등).
+  // 검색창을 고칠 때 URL에 되쓰지 않는다 — 두 방향으로 동기화하면 서로를 덮어써
+  // 무한 렌더로 이어진다.
+  const queryParam = searchParams.get('q') || '';
+
+  const [activeBoard, setActiveBoard] = useState('all');
+  const [sort, setSort] = useState('new');
+  const [query, setQuery] = useState(queryParam);
+  // 입력할 때마다 서버를 부르지 않도록 검색어만 잠시 늦춘다.
+  const [debouncedQuery, setDebouncedQuery] = useState(queryParam);
+
+  // 같은 화면에 머문 채 ?q=만 바뀌는 경우(장소를 연달아 열어볼 때)를 위해 따라간다.
+  const prevQueryParam = useRef(queryParam);
+  useEffect(() => {
+    if (queryParam !== prevQueryParam.current) {
+      prevQueryParam.current = queryParam;
+      setQuery(queryParam);
+    }
+  }, [queryParam]);
 
   /**
    * 글을 열 때는 히스토리에 쌓고(push), 목록으로 돌아올 때는 그 기록을 대체(replace)한다.

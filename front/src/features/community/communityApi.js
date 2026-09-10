@@ -66,9 +66,16 @@ function buildQuery(params) {
   return qs ? `?${qs}` : '';
 }
 
-export async function fetchPosts({ board, sort, q, cursor, limit = 20 } = {}) {
+export async function fetchPosts({
+  board,
+  placeId,
+  sort,
+  q,
+  cursor,
+  limit = 20,
+} = {}) {
   const data = await optionalAuthFetch(
-    `/api/community/posts${buildQuery({ board, sort, q, cursor, limit })}`,
+    `/api/community/posts${buildQuery({ board, placeId, sort, q, cursor, limit })}`,
   );
   return {
     posts: (data?.posts || []).map(normalizePost).filter(Boolean),
@@ -228,6 +235,7 @@ export async function fetchMyComments() {
     body: c.body || '',
     createdAt: c.createdAt || null,
     anonymous: Boolean(c.anonymous),
+    likes: Number(c.likes || 0),
   }));
 }
 

@@ -160,6 +160,7 @@ def build_summaries(session, posts, viewer: AuthUser | None):
 @router.get("/posts", response_model=PostListResponse)
 def list_posts(
     board: str | None = Query(default=None),
+    placeId: int | None = Query(default=None, ge=1),
     sort: str = Query(default="hot"),
     q: str | None = Query(default=None),
     cursor: str | None = Query(default=None),
@@ -170,6 +171,7 @@ def list_posts(
         posts, next_cursor = community_store.list_posts(
             session,
             board_id=normalize_board_filter(board),
+            place_id=placeId,
             sort=sort,
             query=q,
             cursor=cursor,

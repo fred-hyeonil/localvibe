@@ -259,6 +259,7 @@ def list_posts(
     session,
     *,
     board_id: str | None = None,
+    place_id: int | None = None,
     sort: str = "hot",
     query: str | None = None,
     cursor: str | None = None,
@@ -274,6 +275,10 @@ def list_posts(
 
     if board_id:
         stmt = stmt.where(CommunityPost.board_id == board_id)
+
+    # 장소 상세에서 "이 장소 글"만 볼 때 쓴다. 자유 입력한 장소명은 걸리지 않는다.
+    if place_id:
+        stmt = stmt.where(CommunityPost.place_id == place_id)
 
     q = (query or "").strip()
     if q:

@@ -334,7 +334,10 @@ export default function MyPage({
                   <p className="mypage-activity-title">{post.title}</p>
                   <p className="mypage-activity-body">{post.body}</p>
                   <div className="mypage-activity-stats">
-                    <span>▲ {post.votes}</span>
+                    <span className="mypage-activity-stat">
+                      <LineIcon name="thumbUp" className="mypage-activity-icon" />
+                      {post.votes}
+                    </span>
                     <span className="mypage-activity-sep">|</span>
                     <span>댓글 {post.comments}</span>
                   </div>
@@ -386,7 +389,10 @@ export default function MyPage({
                   <p className="mypage-activity-title">{post.title}</p>
                   <p className="mypage-activity-body">{post.body}</p>
                   <div className="mypage-activity-stats">
-                    <span>▲ {post.votes}</span>
+                    <span className="mypage-activity-stat">
+                      <LineIcon name="thumbUp" className="mypage-activity-icon" />
+                      {post.votes}
+                    </span>
                     <span className="mypage-activity-sep">|</span>
                     <span>댓글 {post.comments}</span>
                   </div>
@@ -429,7 +435,10 @@ export default function MyPage({
                     원글 · {comment.postTitle}
                   </p>
                   <div className="mypage-activity-stats">
-                    <span>▲ {comment.votes}</span>
+                    <span className="mypage-activity-stat">
+                      <LineIcon name="thumbUp" className="mypage-activity-icon" />
+                      {comment.likes}
+                    </span>
                   </div>
                 </button>
               </li>

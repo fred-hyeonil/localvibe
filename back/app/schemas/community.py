@@ -141,6 +141,8 @@ class MyCommentItem(BaseModel):
     body: str
     createdAt: Optional[str] = None
     anonymous: bool = False
+    # 댓글에는 투표가 없고 따봉만 있습니다.
+    likes: int = 0
 
 
 class MyCommentListResponse(BaseModel):
