@@ -1629,8 +1629,12 @@ export default function CommunityPage() {
         images: draft.images || [],
       });
       setWriteParam(null, { replace: true });
-      setActiveBoard(draft.boardId);
+      // 어느 게시판을 보고 있었든 전체 목록으로 옮긴다. 최신순이라 방금 쓴 글이
+      // 무슨 게시판이든 맨 위에 오므로, 등록됐는지 바로 확인할 수 있다.
+      setActiveBoard('all');
       setSort('new');
+      // 게시판·정렬이 그대로면 재조회가 걸리지 않으므로, 새 글은 여기서 직접 얹는다.
+      // 상태가 바뀌어 재조회가 돌면 서버 목록이 이 배열을 대체한다.
       setPosts(prev => [created, ...prev.filter(p => p.id !== created.id)]);
       window.scrollTo({ top: 0 });
     } catch (err) {
