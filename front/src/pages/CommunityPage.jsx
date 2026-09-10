@@ -119,28 +119,28 @@ function VotePill({ votes, myVote, onVote }) {
     <div className="cm-vote">
       <button
         type="button"
-        className={`cm-vote-btn${myVote === 1 ? ' up' : ''}`}
+        className={`cm-vote-btn is-up${myVote === 1 ? ' up' : ''}`}
         onClick={e => {
           e.stopPropagation();
           onVote(myVote === 1 ? 0 : 1);
         }}
         aria-label="추천"
       >
-        ▲
+        <LineIcon name="thumbUp" />
       </button>
       <span className={`cm-vote-score${myVote === 1 ? ' up' : ''}${myVote === -1 ? ' down' : ''}`}>
         {votes}
       </span>
       <button
         type="button"
-        className={`cm-vote-btn${myVote === -1 ? ' down' : ''}`}
+        className={`cm-vote-btn is-down${myVote === -1 ? ' down' : ''}`}
         onClick={e => {
           e.stopPropagation();
           onVote(myVote === -1 ? 0 : -1);
         }}
         aria-label="비추천"
       >
-        ▼
+        <LineIcon name="thumbDown" />
       </button>
     </div>
   );
@@ -469,14 +469,20 @@ function Comment({ comment, depth = 0, onReply, onLike, onEdit, onDelete }) {
           <LineIcon name="thumbUp" className="cm-icon" />
           {comment.likes > 0 && <span>{comment.likes}</span>}
         </button>
-        <span className="cm-bar">|</span>
-        <button
-          type="button"
-          className="cm-post-action cm-post-action--btn"
-          onClick={() => setReplyOpen(v => !v)}
-        >
-          답글
-        </button>
+        {/* 답글은 한 단계까지만. 답글에 또 답글을 달면 멘션 표시가 없어
+            누구에게 한 말인지 알 수 없고, 서버도 원 댓글로 평탄화한다. */}
+        {depth === 0 && (
+          <>
+            <span className="cm-bar">|</span>
+            <button
+              type="button"
+              className="cm-post-action cm-post-action--btn"
+              onClick={() => setReplyOpen(v => !v)}
+            >
+              답글
+            </button>
+          </>
+        )}
 
       </div>
 
@@ -641,14 +647,22 @@ function PostDetail({
   const [draft, setDraft] = useState('');
   const [anonymousComment, setAnonymousComment] = useState(false);
   const [sending, setSending] = useState(false);
+  // 서버가 준 커서만 보관한다. 내가 방금 쓴 댓글을 목록 끝에 붙여도
+  // 다음 페이지 요청 위치가 밀리지 않게 하기 위해서다.
+  const [commentCursor, setCommentCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const commentSentinelRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError('');
+    setCommentCursor(null);
     fetchComments(post.id)
-      .then(list => {
-        if (!cancelled) setComments(list);
+      .then(({ comments: list, nextCursor }) => {
+        if (cancelled) return;
+        setComments(list);
+        setCommentCursor(nextCursor);
       })
       .catch(() => {
         if (!cancelled) setError('댓글을 불러오지 못했습니다.');
@@ -660,6 +674,37 @@ function PostDetail({
       cancelled = true;
     };
   }, [post.id]);
+
+  // 댓글 무한 스크롤 — 목록 바닥이 보이면 다음 커서로 이어 붙인다.
+  useEffect(() => {
+    const el = commentSentinelRef.current;
+    if (!el || !commentCursor || loadingMore) return undefined;
+    const observer = new IntersectionObserver(
+      async entries => {
+        if (!entries[0].isIntersecting) return;
+        setLoadingMore(true);
+        try {
+          const { comments: more, nextCursor } = await fetchComments(post.id, {
+            cursor: commentCursor,
+          });
+          // 이미 있는 id는 거른다(페이지 사이에 댓글이 지워졌을 때의 중복 방지).
+          setComments(prev => {
+            const seen = new Set(prev.map(c => c.id));
+            return [...prev, ...more.filter(c => !seen.has(c.id))];
+          });
+          setCommentCursor(nextCursor);
+        } catch {
+          // 더 못 불러오면 조용히 멈춘다. 이미 읽은 댓글은 그대로 남는다.
+          setCommentCursor(null);
+        } finally {
+          setLoadingMore(false);
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [commentCursor, loadingMore, post.id]);
 
   /** 댓글 수정 — 트리 어디에 있든 찾아 바꾼다. */
   const handleEditComment = async (commentId, body) => {
@@ -831,11 +876,6 @@ function PostDetail({
             >
               <LineIcon name="save" /> {post.saved ? '저장됨' : '저장'}
             </span>
-            <span className="cm-bar">|</span>
-            <span className="cm-post-action">
-              <LineIcon name="report" /> 신고
-            </span>
-
           </div>
         </div>
       </article>
@@ -899,6 +939,11 @@ function PostDetail({
               />
             ))}
           </ul>
+        )}
+        {commentCursor && (
+          <div ref={commentSentinelRef} className="cm-loading-more">
+            댓글 더 불러오는 중…
+          </div>
         )}
       </section>
     </div>

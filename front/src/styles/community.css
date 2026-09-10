@@ -264,15 +264,31 @@
 }
 
 .cm-vote-btn {
-  width: 22px;
-  height: 22px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   background: none;
   border: none;
   border-radius: 50%;
-  font-size: 11px;
   color: var(--gray-500);
   cursor: pointer;
   transition: background var(--tr-fast), color var(--tr-fast);
+}
+
+.cm-vote-btn .cm-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* 따봉은 손목이 아래로 치우쳐 있어 원 안에서 위로 조금 올려야 가운데로 보인다 */
+.cm-vote-btn.is-up .cm-icon {
+  transform: translateY(-1px);
+}
+
+.cm-vote-btn.is-down .cm-icon {
+  transform: translateY(1px);
 }
 
 .cm-vote-btn:hover {
@@ -285,9 +301,15 @@
   color: var(--black);
 }
 
+/* 내가 누른 쪽은 아이콘을 채워 한눈에 보이게 */
+.cm-vote-btn.up .cm-icon,
+.cm-vote-btn.down .cm-icon {
+  fill: currentColor;
+}
+
 .cm-vote-btn.down,
 .cm-vote-score.down {
-  color: var(--gray-500);
+  color: var(--black);
 }
 
 .cm-vote-score {
@@ -683,6 +705,7 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--gray-700);
+  cursor: pointer;
   transition: color var(--tr-fast);
 }
 
@@ -846,9 +869,12 @@
   padding-right: 32px;
 }
 
+/* 댓글 사이 가로 구분선 — 없는 쪽을 보려고 잠시 꺼둡니다. 되살리려면 주석 해제. */
+/*
 .cm-comment + .cm-comment {
   border-top: 1px solid var(--gray-100);
 }
+*/
 
 .cm-comment-head {
   display: flex;

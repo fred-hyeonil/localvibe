@@ -23,6 +23,7 @@ from sqlalchemy import (
     func,
     or_,
     select,
+    tuple_,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -414,10 +415,46 @@ def list_trending_places(
 
 # ── 댓글 ──────────────────────────────────────────────────────────────────────
 
-def list_comments(session, post_id: int) -> list[CommunityComment]:
+def list_root_comments(
+    session, post_id: int, *, cursor: int | None = None, limit: int = 20
+) -> list[CommunityComment]:
+    """최상위 댓글만 오래된 순으로 한 페이지.
+
+    커서는 마지막으로 받은 최상위 댓글의 id다. 정렬 키가 (created_at, comment_id)이므로
+    그 댓글의 created_at을 서브쿼리로 다시 읽어 튜플 비교한다. 같은 초에 여러 댓글이
+    달려도 id가 tie-breaker라 중복·누락이 없다.
+    """
+    stmt = select(CommunityComment).where(
+        CommunityComment.post_id == post_id,
+        CommunityComment.deleted_at.is_(None),
+        CommunityComment.parent_id.is_(None),
+    )
+    if cursor:
+        anchor = (
+            select(CommunityComment.created_at)
+            .where(CommunityComment.comment_id == cursor)
+            .scalar_subquery()
+        )
+        stmt = stmt.where(
+            tuple_(CommunityComment.created_at, CommunityComment.comment_id)
+            > tuple_(anchor, cursor)
+        )
+    stmt = stmt.order_by(
+        CommunityComment.created_at.asc(), CommunityComment.comment_id.asc()
+    ).limit(limit)
+    return list(session.execute(stmt).scalars().all())
+
+
+def list_replies(session, parent_ids: list[int]) -> list[CommunityComment]:
+    """주어진 최상위 댓글들의 답글. 답글은 한 단계뿐이라 페이징하지 않는다."""
+    if not parent_ids:
+        return []
     stmt = (
         select(CommunityComment)
-        .where(CommunityComment.post_id == post_id, CommunityComment.deleted_at.is_(None))
+        .where(
+            CommunityComment.parent_id.in_(parent_ids),
+            CommunityComment.deleted_at.is_(None),
+        )
         .order_by(CommunityComment.created_at.asc(), CommunityComment.comment_id.asc())
     )
     return list(session.execute(stmt).scalars().all())

@@ -326,14 +326,26 @@ def list_trending(
 # ── 댓글 ──────────────────────────────────────────────────────────────────────
 
 @router.get("/posts/{post_id}/comments", response_model=CommentListResponse)
-def list_comments(post_id: int, viewer: AuthUser | None = Depends(get_current_user_optional)):
+def list_comments(
+    post_id: int,
+    cursor: int | None = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    viewer: AuthUser | None = Depends(get_current_user_optional),
+):
     viewer_id = viewer.user_id if viewer else None
     with session_scope() as session:
         post = community_store.get_post(session, post_id)
         if not post:
             raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다.")
 
-        rows = community_store.list_comments(session, post_id)
+        # 최상위 댓글만 페이징하고, 그 답글은 통째로 딸려 보낸다.
+        root_rows = community_store.list_root_comments(
+            session, post_id, cursor=cursor, limit=limit
+        )
+        reply_rows = community_store.list_replies(
+            session, [int(c.comment_id) for c in root_rows]
+        )
+        rows = root_rows + reply_rows
         profiles = _author_profiles(
             session, {int(c.user_id) for c in rows if not c.is_anonymous}
         )
@@ -370,7 +382,10 @@ def list_comments(post_id: int, viewer: AuthUser | None = Depends(get_current_us
                 parent.replies.append(item)
             else:
                 roots.append(item)
-        return CommentListResponse(comments=roots)
+        next_cursor = (
+            int(root_rows[-1].comment_id) if len(root_rows) == limit else None
+        )
+        return CommentListResponse(comments=roots, nextCursor=next_cursor)
 
 
 @router.post("/posts/{post_id}/comments", response_model=CommentItem)

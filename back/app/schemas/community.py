@@ -52,6 +52,8 @@ class CommentItem(BaseModel):
 
 class CommentListResponse(BaseModel):
     comments: list[CommentItem] = Field(default_factory=list)
+    # 다음 페이지가 있으면 마지막 최상위 댓글의 id. 없으면 None.
+    nextCursor: Optional[int] = None
 
 
 class PostCreateRequest(BaseModel):

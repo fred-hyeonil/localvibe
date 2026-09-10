@@ -151,9 +151,14 @@ export async function deletePost(postId) {
   await apiFetch(`/api/community/posts/${postId}`, { method: 'DELETE' });
 }
 
-export async function fetchComments(postId) {
-  const data = await optionalAuthFetch(`/api/community/posts/${postId}/comments`);
-  return (data?.comments || []).map(normalizeComment).filter(Boolean);
+export async function fetchComments(postId, { cursor, limit = 20 } = {}) {
+  const data = await optionalAuthFetch(
+    `/api/community/posts/${postId}/comments${buildQuery({ cursor, limit })}`,
+  );
+  return {
+    comments: (data?.comments || []).map(normalizeComment).filter(Boolean),
+    nextCursor: data?.nextCursor || null,
+  };
 }
 
 export async function createComment(postId, { body, parentId, anonymous }) {
