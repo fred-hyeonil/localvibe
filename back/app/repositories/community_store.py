@@ -21,9 +21,11 @@ from sqlalchemy import (
     UniqueConstraint,
     delete,
     func,
+    literal,
     or_,
     select,
     tuple_,
+    union_all,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -393,24 +395,51 @@ def list_image_urls(session, post_id: int) -> list[str]:
     return urls
 
 
+# 글 한 개를 조회 몇 번으로 볼지. 조회는 글보다 훨씬 흔해서 가중치가 없으면
+# 글 작성 수가 순위에 거의 반영되지 않는다. 순위가 조회 쪽으로 쏠리면 올리고,
+# 글 몇 개로 순위가 뒤집히면 내린다.
+TRENDING_POST_WEIGHT = 10
+
+
 def list_trending_places(
     session, *, days: int = 30, limit: int = 5
 ) -> list[tuple[str, int]]:
-    """최근 글에 많이 등장한 장소. (장소명, 글 수)"""
+    """지금 많이 찾는 장소. (장소명, 점수)
+
+    점수 = 상세 열람 수 + 글 작성 수 × TRENDING_POST_WEIGHT (최근 days일).
+
+    두 지표를 각각 집계해 바깥에서 합치면 MySQL에 FULL OUTER JOIN이 없어
+    한쪽에만 있는 장소가 빠진다. 그래서 가중치를 붙인 행을 UNION ALL로 쌓고
+    한 번에 GROUP BY 한다.
+    """
+    from app.repositories.places_store import Place, PlaceView
+
     since = datetime.utcnow() - timedelta(days=days)
+
+    view_rows = select(
+        PlaceView.place_id.label("place_id"), literal(1).label("w")
+    ).where(PlaceView.viewed_on >= since.date())
+
+    post_rows = select(
+        CommunityPost.place_id.label("place_id"),
+        literal(TRENDING_POST_WEIGHT).label("w"),
+    ).where(
+        CommunityPost.deleted_at.is_(None),
+        CommunityPost.place_id.is_not(None),
+        CommunityPost.created_at >= since,
+    )
+
+    scored = union_all(view_rows, post_rows).subquery()
+    score = func.sum(scored.c.w).label("score")
+
     stmt = (
-        select(CommunityPost.place_name, func.count().label("cnt"))
-        .where(
-            CommunityPost.deleted_at.is_(None),
-            CommunityPost.place_name.is_not(None),
-            CommunityPost.place_name != "",
-            CommunityPost.created_at >= since,
-        )
-        .group_by(CommunityPost.place_name)
-        .order_by(func.count().desc(), CommunityPost.place_name.asc())
+        select(Place.name, score)
+        .join(Place, Place.place_id == scored.c.place_id)
+        .group_by(Place.place_id, Place.name)
+        .order_by(score.desc(), Place.name.asc())
         .limit(limit)
     )
-    return [(str(name), int(cnt)) for name, cnt in session.execute(stmt).all()]
+    return [(str(name), int(s)) for name, s in session.execute(stmt).all()]
 
 
 # ── 댓글 ──────────────────────────────────────────────────────────────────────

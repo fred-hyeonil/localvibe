@@ -986,6 +986,64 @@
   font-weight: 700;
 }
 
+/* 제목 옆 ? 도움말 — 플래너 챗봇(.trip-chat-help-btn)과 같은 모양 */
+.cm-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cm-card-title-row .cm-card-title {
+  margin: 0;
+}
+
+.cm-help-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gray-500);
+  cursor: default;
+}
+
+.cm-help-btn:hover .cm-help-tooltip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.cm-help-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  /* ? 아이콘 가운데를 기준으로 좌우 대칭 */
+  left: 50%;
+  z-index: 100;
+  width: 240px;
+  padding: 12px 14px;
+  background: var(--gray-900);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--white);
+  white-space: pre-line;
+  /* 한국어는 기본 규칙이 어절 중간에서 끊어 "보여줘 / 요." 처럼 갈린다 */
+  word-break: keep-all;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -6px);
+  transition: opacity var(--tr-fast), transform var(--tr-fast);
+}
+
 .cm-card-text {
   margin: 0;
   font-size: 12.5px;
@@ -1025,6 +1083,26 @@
 
 .cm-trend-list li {
   font-size: 13px;
+  /* 1위부터 차례로 올라오며 나타난다. --i는 목록에서 인덱스를 넘겨받는다. */
+  animation: cm-trend-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@keyframes cm-trend-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-trend-list li {
+    animation: none;
+  }
+
+  .cm-trend-item:hover .cm-trend-label {
+    transform: none;
+  }
 }
 
 .cm-trend-item {
@@ -1049,6 +1127,15 @@
   background: var(--gray-100);
 }
 
+/* 호버 — 순위 숫자가 진해지고 이름이 살짝 밀린다 */
+.cm-trend-item:hover .cm-trend-rank {
+  color: var(--black);
+}
+
+.cm-trend-item:hover .cm-trend-label {
+  transform: translateX(2px);
+}
+
 .cm-trend-list li + li {
   border-top: 1px solid var(--gray-100);
 }
@@ -1057,6 +1144,7 @@
   width: 16px;
   font-weight: 800;
   color: var(--gray-400);
+  transition: color var(--tr-fast);
 }
 
 .cm-trend-label {
@@ -1065,6 +1153,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition: transform var(--tr-fast);
 }
 
 .cm-trend-count {

@@ -1,4 +1,5 @@
 import { apiFetch, optionalAuthFetch } from '../../shared/api/client';
+import { getViewerKey } from '../../shared/viewerKey';
 
 /**
  * 커뮤니티 API.
@@ -73,20 +74,6 @@ export async function fetchPosts({ board, sort, q, cursor, limit = 20 } = {}) {
     posts: (data?.posts || []).map(normalizePost).filter(Boolean),
     nextCursor: data?.nextCursor || null,
   };
-}
-
-/** 비로그인 조회 중복 제거용 키 — 브라우저마다 하나 만들어 보관한다. */
-function getViewerKey() {
-  try {
-    let key = localStorage.getItem('lv_viewer_key');
-    if (!key) {
-      key = `g${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-      localStorage.setItem('lv_viewer_key', key);
-    }
-    return key;
-  } catch {
-    return '';
-  }
 }
 
 export async function fetchPost(postId) {

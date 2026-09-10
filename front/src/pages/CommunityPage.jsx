@@ -42,6 +42,17 @@ const PHOTO_MAX = 5;
 /** 무한 스크롤에서 한 번에 더 불러오는 글 수. */
 const PAGE_SIZE = 20;
 
+/** 로딩 표시를 최소 이만큼은 띄운다. 응답이 빠를 때 깜빡이는 것을 막는 용도. */
+const LOADER_MIN_MS = 300;
+
+/** 인기 장소 집계 설명 — 백엔드 list_trending_places와 내용이 어긋나지 않게 함께 고칠 것. */
+const TRENDING_HELP_TEXT = `최근 30일 동안의 관심을 점수로 매겨 보여줘요.
+
+• 장소 상세를 연 횟수 1점
+• 그 장소로 쓴 글 1개 10점
+
+같은 사람이 같은 날 여러 번 열어도 한 번만 세요. 글쓰기에서 자동완성으로 고른 장소만 집계돼요.`;
+
 /** 내용 입력 안내 — 커뮤니티 규칙을 그대로 옮겨 적습니다. */
 const BODY_PLACEHOLDER = [
   '방문 시기, 가는 방법, 좋았던 점을 적어주세요.',
@@ -683,10 +694,15 @@ function PostDetail({
       async entries => {
         if (!entries[0].isIntersecting) return;
         setLoadingMore(true);
+        const startedAt = Date.now();
         try {
           const { comments: more, nextCursor } = await fetchComments(post.id, {
             cursor: commentCursor,
           });
+          // 응답이 너무 빠르면 로딩 표시가 깜빡 스치고 만다. 서버가 느릴 때는
+          // 기다림이 이미 지났으므로 아무것도 더하지 않는다.
+          const rest = LOADER_MIN_MS - (Date.now() - startedAt);
+          if (rest > 0) await new Promise(r => setTimeout(r, rest));
           // 이미 있는 id는 거른다(페이지 사이에 댓글이 지워졌을 때의 중복 방지).
           setComments(prev => {
             const seen = new Set(prev.map(c => c.id));
@@ -1868,13 +1884,20 @@ export default function CommunityPage() {
         </div>
 
         <div className="cm-card">
-          <p className="cm-card-title">지금 많이 찾는 장소</p>
+          <div className="cm-card-title-row">
+            <p className="cm-card-title">지금 많이 찾는 장소</p>
+            <div className="cm-help-btn" aria-label="집계 방식">
+              ?
+              <div className="cm-help-tooltip">{TRENDING_HELP_TEXT}</div>
+            </div>
+          </div>
           {trending.length === 0 && (
             <p className="cm-card-text">아직 집계된 장소가 없어요.</p>
           )}
           <ul className="cm-trend-list">
             {trending.map((t, i) => (
-              <li key={t.label}>
+              // 위에서부터 차례로 나타나게 — 순서를 지연으로 넘긴다
+              <li key={t.label} style={{ '--i': i }}>
                 <button
                   type="button"
                   className="cm-trend-item"

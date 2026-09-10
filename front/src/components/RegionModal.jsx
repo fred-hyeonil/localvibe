@@ -3,6 +3,7 @@ import KakaoMap from './KakaoMap';
 import LineIcon from './ui/LineIcon';
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import { buildArticleDisplayData } from '../utils/articleBlocks';
+import { recordPlaceView } from '../features/places/placesApi';
 
 /* ── 인사이트 정규화 ── */
 function normalizeInsightValues(values = []) {
@@ -377,6 +378,13 @@ export default function RegionModal({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [region, onClose]);
+
+  // 열람 기록 — '지금 많이 찾는 장소' 집계용. 같은 사람이 같은 날 여러 번 열어도
+  // 서버가 하루 1회만 센다.
+  const viewedId = region?.id;
+  useEffect(() => {
+    if (viewedId) recordPlaceView(viewedId);
+  }, [viewedId]);
 
   if (!region) return null;
 
