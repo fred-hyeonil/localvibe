@@ -127,6 +127,26 @@ class NaverBlogCrawler:
             logger.warning("[naver] 검색 API 에러 keyword=%s err=%s", keyword, e)
             return []
 
+    def search_images(self, keyword: str, display: int = 5) -> List[str]:
+        """네이버 이미지 검색 API로 이미지 URL 목록 반환."""
+        try:
+            params = {"query": keyword, "display": display, "sort": "sim", "filter": "large"}
+            response = requests.get(
+                "https://openapi.naver.com/v1/search/image",
+                headers=self.headers,
+                params=params,
+                timeout=10,
+            )
+            response.raise_for_status()
+            return [
+                item["link"]
+                for item in response.json().get("items", [])
+                if item.get("link", "").startswith("http")
+            ]
+        except requests.exceptions.RequestException as e:
+            logger.warning("[naver] 이미지 검색 API 에러 keyword=%s err=%s", keyword, e)
+            return []
+
     def extract_blog_content(self, blog_url: str) -> Optional[str]:
         soup = self._resolve_soup(blog_url)
         if not soup:
@@ -168,8 +188,27 @@ class NaverBlogCrawler:
             resp.raise_for_status()
             content_type = (resp.headers.get("Content-Type") or "").lower()
             ext = next((e for e in _CONTENT_TYPE_EXT if e in content_type), "jpg")
-            filename = f"{uuid.uuid4().hex}.{ext}"
             data = resp.content[:8_000_000]
+
+            # 이미지 품질 필터링: 셀카/광고/아이콘 제거
+            try:
+                import io
+                from PIL import Image
+                img = Image.open(io.BytesIO(data))
+                w, h = img.size
+                if w < 400 or h < 300:
+                    logger.debug("[img] 너무 작음 skip %dx%d %s", w, h, image_url)
+                    return None
+                if h > w * 1.3:
+                    logger.debug("[img] 세로형(셀카) skip %dx%d %s", w, h, image_url)
+                    return None
+                if w > h * 5:
+                    logger.debug("[img] 가로배너 skip %dx%d %s", w, h, image_url)
+                    return None
+            except Exception:
+                pass
+
+            filename = f"{uuid.uuid4().hex}.{ext}"
 
             # S3 업로드 우선, 실패 시 로컬 저장 폴백
             serve_url = _s3_upload(data, place_id, filename, content_type or f"image/{ext}")
@@ -275,26 +314,6 @@ def crawl_naver_blog_for_place(
             with session_scope() as session:
                 if not places_store.crawled_text_exists(session, place_id=place_id, blog_url=link):
                     places_store.add_crawled_text(session, place_id=place_id, blog_data=blog_data)
-
-        for img_url in crawler.extract_blog_images(link, max_images=6)[:3]:
-            meta = crawler.download_image(img_url, place_id)
-            if not meta:
-                continue
-            if use_db:
-                with session_scope() as session:
-                    if places_store.crawled_image_exists(
-                        session, place_id=place_id, source_url=meta["source_url"]
-                    ):
-                        serve_saved.append(meta["serve_url"])
-                        continue
-                    places_store.add_crawled_image(
-                        session,
-                        place_id=place_id,
-                        source_url=meta["source_url"],
-                        local_path=meta["local_path"],
-                        serve_url=meta["serve_url"],
-                    )
-            serve_saved.append(meta["serve_url"])
 
         time.sleep(0.35)
 

@@ -142,7 +142,8 @@ def place_to_region_dict(
     ss = summary_short if summary_short is not None else get_summary_short_from_insight(place.insight_json)
     ctid = _content_type_id_from_insight(place.insight_json)
     kto_img = sanitize_display_image_url(_kto_image_url_from_insight(place.insight_json))
-    display_img = sanitize_display_image_url((primary_image_url or "").strip()) or kto_img
+    crawled_img = sanitize_display_image_url((primary_image_url or "").strip())
+    display_img = kto_img or crawled_img  # KTO 공식 이미지 우선
     return {
         "id": int(place.place_id),
         "sourceId": place.content_id or "",
