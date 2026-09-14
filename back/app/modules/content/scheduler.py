@@ -59,6 +59,14 @@ def crawl_all_places() -> dict:
         logger.info("[crawl_batch] [%d/%d] place_id=%d name=%s", idx, total, place_id, name)
 
         try:
+            # 이미 크롤된 장소는 스킵 (재시작 시 중복 방지)
+            with session_scope() as session:
+                already = places_store.list_crawled_texts_for_place(session, place_id)
+            if already:
+                logger.info("[crawl_batch] place_id=%d 스킵 (이미 크롤됨)", place_id)
+                success += 1
+                continue
+
             # 기존 데이터 삭제
             with session_scope() as session:
                 deleted = places_store.clear_crawled_data_for_place(session, place_id)

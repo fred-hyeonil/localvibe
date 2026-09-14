@@ -24,10 +24,30 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# back/static/images/{place_id}/… (FastAPI는 back/static 을 /static 으로 마운트)
 IMAGE_SAVE_ROOT = Path(__file__).resolve().parents[3] / "static" / "images"
 
 _CONTENT_TYPE_EXT = {"png": "png", "gif": "gif", "webp": "webp"}
+
+
+def _s3_upload(image_bytes: bytes, place_id: int, filename: str, content_type: str) -> str | None:
+    bucket = os.getenv("AWS_S3_BUCKET", "").strip()
+    region = os.getenv("AWS_S3_REGION", "ap-southeast-2").strip()
+    if not bucket:
+        return None
+    try:
+        import boto3
+        s3 = boto3.client(
+            "s3",
+            region_name=region,
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID") or None,
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY") or None,
+        )
+        key = f"images/{place_id}/{filename}"
+        s3.put_object(Bucket=bucket, Key=key, Body=image_bytes, ContentType=content_type)
+        return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+    except Exception as e:
+        logger.warning("[s3] 업로드 실패: %s", e)
+        return None
 
 
 def _get_crawler() -> Optional["NaverBlogCrawler"]:
@@ -149,15 +169,20 @@ class NaverBlogCrawler:
             content_type = (resp.headers.get("Content-Type") or "").lower()
             ext = next((e for e in _CONTENT_TYPE_EXT if e in content_type), "jpg")
             filename = f"{uuid.uuid4().hex}.{ext}"
-            save_dir = IMAGE_SAVE_ROOT / str(place_id)
-            save_dir.mkdir(parents=True, exist_ok=True)
-            path = save_dir / filename
-            path.write_bytes(resp.content[:8_000_000])
-            return {
-                "source_url": image_url,
-                "local_path": str(path),
-                "serve_url": f"/static/images/{place_id}/{filename}",
-            }
+            data = resp.content[:8_000_000]
+
+            # S3 업로드 우선, 실패 시 로컬 저장 폴백
+            serve_url = _s3_upload(data, place_id, filename, content_type or f"image/{ext}")
+            local_path = ""
+            if not serve_url:
+                save_dir = IMAGE_SAVE_ROOT / str(place_id)
+                save_dir.mkdir(parents=True, exist_ok=True)
+                path = save_dir / filename
+                path.write_bytes(data)
+                local_path = str(path)
+                serve_url = f"/static/images/{place_id}/{filename}"
+
+            return {"source_url": image_url, "local_path": local_path, "serve_url": serve_url}
         except Exception as e:
             logger.debug("[naver] 이미지 다운로드 실패 url=%s err=%s", image_url, e)
             return None
@@ -251,26 +276,25 @@ def crawl_naver_blog_for_place(
                 if not places_store.crawled_text_exists(session, place_id=place_id, blog_url=link):
                     places_store.add_crawled_text(session, place_id=place_id, blog_data=blog_data)
 
-        # 블로그 이미지 수집 비활성화 (필요 시 아래 for 블록 주석 해제)
-        # for img_url in crawler.extract_blog_images(link, max_images=6)[:3]:
-        #     meta = crawler.download_image(img_url, place_id)
-        #     if not meta:
-        #         continue
-        #     if use_db:
-        #         with session_scope() as session:
-        #             if places_store.crawled_image_exists(
-        #                 session, place_id=place_id, source_url=meta["source_url"]
-        #             ):
-        #                 serve_saved.append(meta["serve_url"])
-        #                 continue
-        #             places_store.add_crawled_image(
-        #                 session,
-        #                 place_id=place_id,
-        #                 source_url=meta["source_url"],
-        #                 local_path=meta["local_path"],
-        #                 serve_url=meta["serve_url"],
-        #             )
-        #     serve_saved.append(meta["serve_url"])
+        for img_url in crawler.extract_blog_images(link, max_images=6)[:3]:
+            meta = crawler.download_image(img_url, place_id)
+            if not meta:
+                continue
+            if use_db:
+                with session_scope() as session:
+                    if places_store.crawled_image_exists(
+                        session, place_id=place_id, source_url=meta["source_url"]
+                    ):
+                        serve_saved.append(meta["serve_url"])
+                        continue
+                    places_store.add_crawled_image(
+                        session,
+                        place_id=place_id,
+                        source_url=meta["source_url"],
+                        local_path=meta["local_path"],
+                        serve_url=meta["serve_url"],
+                    )
+            serve_saved.append(meta["serve_url"])
 
         time.sleep(0.35)
 
