@@ -380,6 +380,11 @@ def theme_deprioritize_row(row: dict, profile: TripThemeProfile) -> bool:
         return False
     primary = set(profile.themes)
     if primary & {"food", "cafe", "bakery"}:
+        if str(row.get("category") or "").strip() == "숙박":
+            return True
+        name = str(row.get("name") or "")
+        if any(k in name for k in ("호텔", "모텔", "펜션", "게스트하우스", "리조트", "숙박", "여관")):
+            return True
         return is_major_sightseeing_place(row) and not (
             is_food_place(row) or is_cafe_place(row) or is_bakery_place(row)
         )
