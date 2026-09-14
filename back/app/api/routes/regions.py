@@ -21,7 +21,7 @@ def get_regions(place_in: str | None = Query(None, description="사이드바 지
 
 
 @router.get("/feed", response_model=RegionListResponse)
-def get_regions_feed(limit: int = Query(9, ge=1, le=24, description="갤러리 초기 무작위 피드 개수")):
+def get_regions_feed(limit: int = Query(30, ge=1, le=60, description="갤러리 초기 무작위 피드 개수")):
     return {"regions": list_regions_feed(limit=limit)}
 
 

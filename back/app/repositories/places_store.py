@@ -142,7 +142,8 @@ def place_to_region_dict(
     ss = summary_short if summary_short is not None else get_summary_short_from_insight(place.insight_json)
     ctid = _content_type_id_from_insight(place.insight_json)
     kto_img = sanitize_display_image_url(_kto_image_url_from_insight(place.insight_json))
-    display_img = sanitize_display_image_url((primary_image_url or "").strip()) or kto_img
+    crawled_img = sanitize_display_image_url((primary_image_url or "").strip())
+    display_img = kto_img or crawled_img  # KTO 공식 이미지 우선
     return {
         "id": int(place.place_id),
         "sourceId": place.content_id or "",
@@ -165,6 +166,13 @@ def place_to_region_dict(
 
 def get_place_by_id(session, place_id: int) -> Place | None:
     return session.get(Place, place_id)
+
+
+def get_places_by_ids(session, place_ids: list[int]) -> dict[int, Place]:
+    if not place_ids:
+        return {}
+    places = session.execute(select(Place).where(Place.place_id.in_(place_ids))).scalars().all()
+    return {p.place_id: p for p in places}
 
 
 def place_has_real_display_image(session, place_id: int) -> bool:
@@ -308,11 +316,17 @@ def list_places_as_region_dicts(session) -> list[dict[str, Any]]:
     if not places:
         return []
     ids = [p.place_id for p in places]
+    # 한 번의 IN 쿼리로 이미지 URL 일괄 조회 (N+1 방지)
+    img_rows = session.execute(
+        select(CrawledImage.place_id, CrawledImage.serve_url)
+        .where(CrawledImage.place_id.in_(ids))
+        .where(CrawledImage.serve_url.isnot(None))
+        .order_by(CrawledImage.place_id, CrawledImage.image_id.asc())
+    ).all()
     first_by_place: dict[int, str] = {}
-    for pid in ids:
-        u = _first_crawled_serve_url(session, pid)
-        if u:
-            first_by_place[pid] = u
+    for pid, url in img_rows:
+        if pid not in first_by_place and url:
+            first_by_place[pid] = str(url).strip()
     return [place_to_region_dict(p, primary_image_url=first_by_place.get(p.place_id, "")) for p in places]
 
 
