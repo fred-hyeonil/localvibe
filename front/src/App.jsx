@@ -22,54 +22,6 @@ import {
   feedHasDisplayImages,
 } from './features/gallery/useGalleryFeed';
 
-const SIDEBAR_WIDTH_KEY = 'lv_sidebar_width';
-const SIDEBAR_WIDTH_DEFAULT = 210;
-const SIDEBAR_WIDTH_MIN = 170;
-const SIDEBAR_WIDTH_MAX = 360;
-
-function readInitialSidebarWidth() {
-  try {
-    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    const n = Number(raw);
-    return Number.isFinite(n)
-      ? Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
-      : SIDEBAR_WIDTH_DEFAULT;
-  } catch {
-    return SIDEBAR_WIDTH_DEFAULT;
-  }
-}
-
-const REGION_TREE = [
-  { id: 'metro', label: '수도권', children: ['서울', '경기', '인천'] },
-  {
-    id: 'gangwon',
-    label: '강원특별자치도',
-    regionFilter: '강원특별자치도',
-    children: ['강릉', '춘천', '원주', '속초'],
-  },
-  {
-    id: 'chungcheong',
-    label: '충청',
-    children: ['대전', '청주', '천안', '충주'],
-  },
-  {
-    id: 'jeonbuk',
-    label: '전북특별자치도',
-    regionFilter: '전북특별자치도',
-    children: ['전주', '군산', '익산', '남원'],
-  },
-  {
-    id: 'jeonnam',
-    label: '전라남도',
-    children: ['광주', '여수', '순천', '목포'],
-  },
-  {
-    id: 'gyeongsang',
-    label: '경상',
-    children: ['부산', '대구', '경주', '울산', '포항'],
-  },
-  { id: 'jeju', label: '제주', children: ['제주시', '서귀포'] },
-];
 
 /** URL(?tab=)과 주고받는 탭 목록. */
 const VALID_TABS = ['gallery', 'planner', 'community', 'mypage', 'contact'];
@@ -286,9 +238,6 @@ export default function App() {
   const [modalCrawlImages, setModalCrawlImages] = useState([]);
   const [modalArticle, setModalArticle] = useState(null);
   const [modalArticleLoading, setModalArticleLoading] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(readInitialSidebarWidth);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [openRegions, setOpenRegions] = useState({});
   const [accountPopupOpen, setAccountPopupOpen] = useState(false);
   const [tripSelectRegion, setTripSelectRegion] = useState(null);
   const accountAreaRef = useRef(null);
@@ -423,41 +372,7 @@ export default function App() {
 
   // ── 핸들러 ───────────────────────────────────────────────────────
 
-  const handleSidebarResizePointerDown = useCallback(
-    e => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const startX = e.clientX,
-        startW = sidebarWidth;
-      let lastW = startW;
-      const onMove = ev => {
-        lastW = Math.min(
-          SIDEBAR_WIDTH_MAX,
-          Math.max(SIDEBAR_WIDTH_MIN, Math.round(startW + ev.clientX - startX)),
-        );
-        setSidebarWidth(lastW);
-      };
-      const end = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', end);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        try {
-          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(lastW));
-        } catch {}
-      };
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', end);
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {}
-    },
-    [sidebarWidth],
-  );
-
-  const handleRequestAddToTrip = useCallback(
+const handleRequestAddToTrip = useCallback(
     region => setTripSelectRegion(region),
     [],
   );
@@ -537,86 +452,12 @@ export default function App() {
     [regions, scrappedIds],
   );
   const currentPage = PAGE_INFO[activeTab] || PAGE_INFO.gallery;
-  const showSidebar = activeTab === 'contact' && sidebarOpen;
-  const effectiveSidebarWidth = showSidebar ? sidebarWidth : 0;
-
   // ── JSX ──────────────────────────────────────────────────────────
   return (
     <div className="app-page">
       <CommonHeader onTabChange={setActiveTab} />
 
       <div className="app-layout">
-        {showSidebar && (
-          <aside
-            className="app-sidebar"
-            style={{
-              width: effectiveSidebarWidth,
-              minWidth: SIDEBAR_WIDTH_MIN,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <div className="sidebar-scroll-area">
-              <div className="sidebar-section-title" style={{ marginTop: 14 }}>
-                지역
-              </div>
-              {REGION_TREE.map(r => (
-                <div key={r.id}>
-                  <button
-                    className="sidebar-link sidebar-link--region"
-                    type="button"
-                    aria-expanded={Boolean(openRegions[r.id])}
-                    onClick={() =>
-                      setOpenRegions(prev => ({ ...prev, [r.id]: !prev[r.id] }))
-                    }
-                  >
-                    <span className="sidebar-link-label">{r.label}</span>
-                    <span
-                      className={`sidebar-link-chevron${openRegions[r.id] ? ' is-open' : ''}`}
-                      aria-hidden
-                    >
-                      ▼
-                    </span>
-                  </button>
-                  {openRegions[r.id] && (
-                    <div className="sidebar-children">
-                      {r.children.map(city => (
-                        <button
-                          key={city}
-                          className="sidebar-link sidebar-link--child"
-                          type="button"
-                          onClick={() => {
-                            void handleSidebarRegionClick(city);
-                            setActiveTab('gallery');
-                          }}
-                        >
-                          {city}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div className="sidebar-section-title" style={{ marginTop: 14 }}>
-                정보
-              </div>
-              <button
-                type="button"
-                className="sidebar-link"
-                onClick={() => navigate('/')}
-              >
-                서비스 소개
-              </button>
-              <button
-                type="button"
-                className={`sidebar-link${activeTab === 'contact' ? ' active' : ''}`}
-                onClick={() => setActiveTab('contact')}
-              >
-                문의하기
-              </button>
-            </div>
-          </aside>
-        )}
 
         <main ref={shellRef} className="app-shell">
           {/* 콘텐츠가 한 화면을 채우게 해서, 로딩 중에도 푸터가 화면 안으로 올라오지 않게 한다. */}
@@ -641,7 +482,6 @@ export default function App() {
                 <GallerySearchBox
                   onSearch={handleGalleryVectorSearch}
                   busy={gallerySearchBusy}
-                  placeholder="장소나 분위기를 검색해보세요"
                 />
               </div>
               {gallerySearchBusy && (
@@ -656,11 +496,6 @@ export default function App() {
                 )}
               {!gallerySearchBusy && (
                 <div className="gallery-results-fade">
-                  {galleryIsDefaultFeed && galleryDisplayRegions.length > 0 && (
-                    <p style={{ fontSize: 12, color: '#aaa', textAlign: 'right', margin: '0 4px 8px', letterSpacing: '0.03em' }}>
-                      랜덤 추천 · 검색으로 취향에 맞는 장소를 찾아보세요
-                    </p>
-                  )}
                   <RegionGallery
                     regions={galleryDisplayRegions}
                     scrappedIds={scrappedIds}

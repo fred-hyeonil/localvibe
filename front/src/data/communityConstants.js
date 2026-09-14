@@ -18,6 +18,7 @@ export const COMMUNITY_BOARDS = [
   { id: 'damyang', name: '담양', desc: '죽녹원·메타세쿼이아길' },
   { id: 'boseong', name: '보성', desc: '녹차밭·율포해수욕장' },
   { id: 'wando', name: '완도', desc: '청산도·신지명사십리' },
+  { id: 'other', name: '그외 지역', desc: '광주·전남 외 지역 이야기' },
 ];
 
 export const COMMUNITY_SORTS = [

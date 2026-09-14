@@ -5002,6 +5002,7 @@ body {
 .page-header--contact {
   margin-bottom: 20px;
   padding-bottom: 0;
+  padding-left: 220px;
   border-bottom: none;
 }
 

@@ -179,6 +179,41 @@ def _place_matches_locality_hints(place: Place, hints: list[str]) -> bool:
     return any(h.lower() in blob for h in hints)
 
 
+def _name_match_boosts(query: str) -> dict[int, float]:
+    """쿼리와 이름이 일치하는 place_id → boost 값 매핑.
+
+    공백을 제거한 정규화 쿼리로도 검색해 '광주 극장' → '광주극장' 케이스를 잡는다.
+    완전 일치 2.0 / 시작 일치 1.5 / 부분 포함 0.8
+    """
+    q = str(query or "").strip()
+    if not q:
+        return {}
+    q_norm = q.replace(" ", "").lower()
+    q_lower = q.lower()
+
+    boosts: dict[int, float] = {}
+    with session_scope() as session:
+        rows = places_store.search_places_by_name(session, q, limit=30)
+        if q_norm != q_lower:
+            norm_rows = places_store.search_places_by_name(session, q_norm, limit=30)
+            seen = {r["id"] for r in rows}
+            rows += [r for r in norm_rows if r["id"] not in seen]
+
+    for row in rows:
+        pid = row["id"]
+        name_norm = row["name"].replace(" ", "").lower()
+        name_lower = row["name"].lower()
+        if name_norm == q_norm or name_lower == q_lower:
+            boost = 2.0
+        elif name_norm.startswith(q_norm) or name_lower.startswith(q_lower):
+            boost = 1.5
+        else:
+            boost = 0.8
+        if pid not in boosts or boosts[pid] < boost:
+            boosts[pid] = boost
+    return boosts
+
+
 def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]]:
     """
     Pinecone Top-K(20) → 점수 재계산 후 정렬된 place 요약 dict 리스트.
@@ -193,10 +228,17 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
     theme_profile = detect_trip_theme_profile(query)
 
     merged: dict[int, float] = {pid: float(sim) for pid, sim in scored}
+
+    # 이름 일치 장소 — Pinecone 미포함이어도 후보에 올린다
+    name_boosts = _name_match_boosts(query)
+    floor_sim = float(os.getenv("GALLERY_LOCALITY_HINT_FLOOR_SIM", "0.48"))
+    for pid in name_boosts:
+        if pid not in merged:
+            merged[pid] = floor_sim
+
     if hints and not region_filter:
         with session_scope() as session:
             extra_ids = places_store.find_place_ids_for_locality_hints(session, hints, limit=120)
-        floor_sim = float(os.getenv("GALLERY_LOCALITY_HINT_FLOOR_SIM", "0.48"))
         for pid in extra_ids:
             merged[pid] = max(merged.get(pid, 0.0), floor_sim)
 
@@ -241,6 +283,9 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
             loc = _calc_location_score(p.region, p.province, region_filter)
             sim_n = max(0.0, min(1.0, (sim + 1.0) / 2.0)) if sim <= 1.0 else max(0.0, min(1.0, sim))
             final = _calc_final_score(sim_n, trend, rec, loc)
+            # 이름 일치 장소를 상위로 고정 (완전일치 +2.0, 시작일치 +1.5, 부분포함 +0.8)
+            if place_id in name_boosts:
+                final += name_boosts[place_id]
             if hints and not region_filter and _place_matches_locality_hints(p, hints):
                 final += locality_boost
             if theme_profile.active:

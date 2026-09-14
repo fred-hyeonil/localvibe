@@ -62,7 +62,7 @@ export default function ContactPage() {
   };
 
   return (
-    <section style={{ width: '100%', marginTop: 20 }}>
+    <section style={{ width: '100%', marginTop: 20, paddingLeft: 220 }}>
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 300px',

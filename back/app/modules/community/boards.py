@@ -20,6 +20,7 @@ BOARDS: dict[str, str] = {
     "damyang": "담양",
     "boseong": "보성",
     "wando": "완도",
+    "other": "그외 지역",
 }
 
 # 목록 조회에서 "전체"를 뜻하는 값

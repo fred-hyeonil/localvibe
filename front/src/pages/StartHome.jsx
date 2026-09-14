@@ -306,11 +306,18 @@ export default function StartHome() {
             <p className="sh-footer-desc">Discover real local stories with AI.</p>
           </div>
           <div className="sh-footer-links">
-            {['Core Features', 'Pro Experience', 'Contact', 'Join'].map(l => (
+            {['Core Features', 'Pro Experience', 'Join'].map(l => (
               <span key={l} className="sh-footer-link">
                 {l}
               </span>
             ))}
+            <span
+              className="sh-footer-link"
+              style={{ cursor: 'pointer' }}
+              onClick={() => navigate('/main?tab=contact')}
+            >
+              Contact
+            </span>
           </div>
         </div>
         <div className="sh-footer-bottom">
