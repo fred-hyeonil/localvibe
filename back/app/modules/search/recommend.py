@@ -23,7 +23,7 @@ from .preferences import (
     prioritize_ids_for_trip_themes,
     theme_boosted_search_query,
 )
-from .themes import TripThemeProfile
+from .themes import TripThemeProfile, place_matches_theme
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,10 @@ def build_trip_baseline_ids(
     build_recommendation_ids: Callable[..., list[int]],
 ) -> list[int]:
     """트립 플래너용: 갤러리 검색 + Pinecone + 지명 스코어 + 지역 필터."""
-    region_filter = reg_f or prov_f
+    # Pinecone/DB의 region 메타데이터는 시·군 단위(reg_f)가 아니라 시·도 전체 이름(prov_f)과
+    # 항상 동일하게 저장돼 있다 (예: 여수여도 region="전라남도"). reg_f를 그대로 필터로 쓰면
+    # 절대 매칭되지 않아 검색이 늘 빈 결과로 죽는다 — prov_f를 우선한다.
+    region_filter = prov_f or reg_f
     search_cap = max(candidate_limit * 2, 16)
     gallery_ids = [
         i
@@ -224,9 +227,9 @@ def build_trip_baseline_ids(
         try:
             pinecone_ids = embedding_service.search(
                 user_message,
-                region_filter=reg_f,
+                region_filter=None,
                 top_k=top_k,
-                province_filter=prov_f,
+                province_filter=prov_f or reg_f,
             )
         except Exception:
             logger.exception("[RECOMMEND] pinecone search failed (trip)")
@@ -283,11 +286,37 @@ def build_trip_baseline_ids(
         intent=intent,
     )
     lexical_ids = [i for i in lexical_ids if i not in current_ids_set and i in row_by_id]
+
+    # 명시적 테마(카페·맛집 등)가 있으면, 지역 풀 전체를 뒤져 테마 일치 장소를 후보에 강하게 반영한다.
+    # (그냥 검색·재랭킹만으로는 카페/맛집 언급이 상위 후보까지 못 올라오는 경우가 많아 별도로 긁어온다.)
+    themes = list((intent or {}).get("themes") or [])
+    theme_ids: list[int] = []
+    if themes:
+        theme_pool = pool_for_fallback()
+        theme_cap = max(candidate_limit * 3, 24)
+        per_theme_cap = max(3, theme_cap // len(themes))
+        for theme in themes:
+            added = 0
+            for row in theme_pool:
+                if added >= per_theme_cap:
+                    break
+                try:
+                    rid = int(row.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if rid in current_ids_set or rid in theme_ids:
+                    continue
+                if place_matches_theme(row, theme):
+                    theme_ids.append(rid)
+                    added += 1
+
+    merge_cap = max(candidate_limit * 3, 24) if theme_ids else candidate_limit
     merged_ids = _merge_id_lists(
+        theme_ids,
         gallery_ids,
         lexical_ids,
         baseline_ids,
-        cap=candidate_limit,
+        cap=merge_cap,
     )
     if merged_ids:
         baseline_ids = merged_ids
@@ -349,6 +378,9 @@ def schedule_entries_for_api(schedule: list[dict]) -> list[dict]:
             place_id = int(entry.get("place_id"))
         except (TypeError, ValueError):
             continue
+        travel_minutes = entry.get("travel_minutes")
+        lat = entry.get("latitude")
+        lng = entry.get("longitude")
         out.append(
             {
                 "day": int(entry.get("day") or 1),
@@ -357,6 +389,11 @@ def schedule_entries_for_api(schedule: list[dict]) -> list[dict]:
                 "placeId": place_id,
                 "placeName": str(entry.get("place_name") or ""),
                 "category": str(entry.get("category") or ""),
+                "travelMinutes": int(travel_minutes) if travel_minutes is not None else None,
+                "travelMode": entry.get("travel_mode"),
+                "meal": entry.get("meal"),
+                "latitude": float(lat) if lat is not None else None,
+                "longitude": float(lng) if lng is not None else None,
             }
         )
     return out

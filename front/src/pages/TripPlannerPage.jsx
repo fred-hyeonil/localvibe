@@ -436,10 +436,13 @@ function TripPlannerPage({
     setSelectedLocation(null);
     setInsightLocation(null);
     chatNewRef.current?.();
-    if (plannerUserId && persistReadyRef.current) {
-      window.setTimeout(() => flushPersist(), 80);
+    if (plannerUserId) {
+      // 지연된 flushPersist에만 기대면, 그 전에 새로고침·탭 이동이 생겼을 때
+      // localStorage에 예전 대화가 그대로 남아있다가 다음에 되살아난다. 즉시 비운다.
+      clearTripPlannerDraft(plannerUserId);
     }
-  }, [plannerUserId, flushPersist]);
+    plannerDraftRef.current = null;
+  }, [plannerUserId]);
 
   const handleTripMetaChange = meta => {
     if (meta?.duration) {
@@ -602,6 +605,10 @@ function TripPlannerPage({
             onReplaceLocation={handleReplaceLocation}
             onRemoveLocation={handleRemoveLocation}
             resolveRegionName={id => lookupRegion(id)?.name || null}
+            resolveRegionThumb={id => {
+              const url = lookupRegion(id)?.imageUrl;
+              return url ? resolveBackendMediaUrl(url) : null;
+            }}
             onComparePlaceSelect={id => {
               const region = lookupRegion(id);
               if (region) {

@@ -192,6 +192,7 @@ function TripChatPanelInner({
   onReplaceLocation,
   onRemoveLocation,
   resolveRegionName,
+  resolveRegionThumb,
   onComparePlaceSelect,
   currentLocations = [],
   tripDuration: tripDurationProp = null,
@@ -411,11 +412,9 @@ function TripChatPanelInner({
       if (action === 'refine' || action === 'replan') {
         if (Array.isArray(data?.recommendedRegionIds) && data.recommendedRegionIds.length > 0) {
           const cap = activeDuration?.maxLocations ?? data.recommendedRegionIds.length;
+          const appliedIds = data.recommendedRegionIds.slice(0, cap);
           suppressRoadmapEchoRef.current = true;
-          onTripLocationsReplaceAll?.(
-            data.recommendedRegionIds.slice(0, cap),
-            data.schedule ?? null,
-          );
+          onTripLocationsReplaceAll?.(appliedIds, data.schedule ?? null);
           const answer =
             String(data?.answer || '').trim() ||
             (action === 'refine' ? '일정을 조정했어요.' : '일정을 새로 구성했어요.');
@@ -425,6 +424,7 @@ function TripChatPanelInner({
               role: 'assistant',
               text: answer,
               action,
+              placeIds: appliedIds,
             },
           ]);
         } else {
@@ -442,17 +442,16 @@ function TripChatPanelInner({
           data.recommendedRegionIds.length > 0
         ) {
           const cap = activeDuration?.maxLocations ?? data.recommendedRegionIds.length;
+          const appliedIds = data.recommendedRegionIds.slice(0, cap);
           suppressRoadmapEchoRef.current = true;
-          onTripLocationsReplaceAll?.(
-            data.recommendedRegionIds.slice(0, cap),
-            data.schedule ?? null,
-          );
+          onTripLocationsReplaceAll?.(appliedIds, data.schedule ?? null);
           setMessages(prev => [
             ...prev,
             {
               role: 'assistant',
               text: String(data?.answer || '').trim() || '일정을 조정했어요.',
               action: 'refine',
+              placeIds: appliedIds,
             },
           ]);
           return;
@@ -486,17 +485,16 @@ function TripChatPanelInner({
           data.recommendedRegionIds.length > 0
         ) {
           const cap = activeDuration?.maxLocations ?? data.recommendedRegionIds.length;
+          const appliedIds = data.recommendedRegionIds.slice(0, cap);
           suppressRoadmapEchoRef.current = true;
-          onTripLocationsReplaceAll?.(
-            data.recommendedRegionIds.slice(0, cap),
-            data.schedule ?? null,
-          );
+          onTripLocationsReplaceAll?.(appliedIds, data.schedule ?? null);
           setMessages(prev => [
             ...prev,
             {
               role: 'assistant',
               text: String(data?.answer || '').trim() || '일정을 조정했어요.',
               action: 'refine',
+              placeIds: appliedIds,
             },
           ]);
           return;
@@ -535,6 +533,7 @@ function TripChatPanelInner({
             {
               role: 'assistant',
               text: answerText || '장소를 교체했어요. 순서·시간을 다시 맞춰 두었어요.',
+              placeIds: [newId],
             },
           ]);
         } else {
@@ -568,6 +567,7 @@ function TripChatPanelInner({
                 answerText ||
                 `${idsForApply.length}곳을 로드맵에 반영했어요.`,
               action: action || 'recommend',
+              placeIds: idsForApply,
             },
           ]);
         } else {
@@ -700,7 +700,29 @@ function TripChatPanelInner({
               delay: message.role === 'assistant' ? ASSISTANT_MESSAGE_DELAY : 0,
             }}
           >
-            {message.text}
+            <div className="trip-chat-textblock">
+              {message.text}
+              {Array.isArray(message.placeIds) && message.placeIds.length > 0 && (
+                <div className="trip-chat-thumbs">
+                  {message.placeIds.slice(0, 4).map(id => {
+                    const src = resolveRegionThumb?.(id);
+                    if (!src) return null;
+                    return (
+                      <img
+                        key={id}
+                        src={src}
+                        alt={resolveRegionName?.(id) || ''}
+                        className="trip-chat-thumb"
+                        loading="lazy"
+                        onError={event => {
+                          event.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {message.componentType &&
               ACTION_LABEL_MAP[message.componentType] && (
                 <div className="copilot-ui-button-wrap">

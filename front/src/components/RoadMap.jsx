@@ -30,6 +30,26 @@ const wrapV = {
 
 const FALLBACK_ITEMS_PER_DAY = 6;
 
+const TRAVEL_MODE_LABEL = {
+  walk: '도보',
+  public: '대중교통',
+  car: '차량',
+};
+
+const DAY_DUO_PALETTE = [
+  ['#c96a4a', '#7a3a26'],
+  ['#3f7a72', '#1f423d'],
+  ['#5a6b8c', '#2e3a52'],
+  ['#8a7a4f', '#4a4020'],
+];
+
+function daySummaryLabel(rawLocs) {
+  const names = rawLocs.filter(Boolean).map(l => String(l?.name || '').trim()).filter(Boolean);
+  if (names.length === 0) return '';
+  if (names.length <= 2) return names.join(' · ');
+  return `${names.slice(0, 2).join(' · ')} 외 ${names.length - 2}곳`;
+}
+
 function DeleteIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -49,6 +69,15 @@ function DragHandleIcon() {
       <circle cx="15" cy="17" r="1.5" fill="currentColor" />
     </svg>
   );
+}
+
+function kakaoMapLink(node) {
+  const name = encodeURIComponent(node.name || '장소');
+  if (Number.isFinite(node.lat) && Number.isFinite(node.lng)) {
+    return `https://map.kakao.com/link/map/${name},${node.lat},${node.lng}`;
+  }
+  const query = encodeURIComponent(node.address || node.name || '');
+  return query ? `https://map.kakao.com/link/search/${query}` : null;
 }
 
 function pickAddress(loc) {
@@ -82,6 +111,11 @@ export default function RoadMap({
       imageUrl: resolveBackendMediaUrl(loc?.imageUrl),
       tripDay: loc?.tripDay ?? null,
       period: displayPeriod(loc),
+      travelMinutes: loc?.tripTravelMinutes ?? null,
+      travelMode: loc?.tripTravelMode ?? null,
+      meal: loc?.tripMeal ?? null,
+      lat: loc?.tripLat ?? null,
+      lng: loc?.tripLng ?? null,
     }));
   }, [locations]);
 
@@ -118,12 +152,22 @@ export default function RoadMap({
       const rawLocs = items.map(it =>
         locations.find((l, idx) => idx === it.renderIndex),
       );
+      const heroSourceRaw = rawLocs.find(l => l?.imageUrl);
+      const totalTravelMinutes = items.reduce(
+        (sum, it) => sum + (Number.isFinite(it.travelMinutes) ? it.travelMinutes : 0),
+        0,
+      );
       return {
         dayNumber,
         items,
         isEmpty: items.length === 0,
         periodSummary: formatDayPeriodSummary(rawLocs.filter(Boolean)),
         showCardPeriod: shouldShowCardPeriod(items.length),
+        concept: daySummaryLabel(rawLocs),
+        heroImage: heroSourceRaw
+          ? resolveBackendMediaUrl(heroSourceRaw.imageUrl)
+          : null,
+        totalTravelMinutes,
       };
     });
   }, [nodes, locations, tripDayCount]);
@@ -186,6 +230,7 @@ export default function RoadMap({
     const isDragging = dragIndex === node.renderIndex;
     const itemDropActive =
       dropHint?.type === 'item' && dropHint.index === node.renderIndex;
+    const mapLink = kakaoMapLink(node);
 
     return (
       <motion.article
@@ -264,10 +309,6 @@ export default function RoadMap({
           </div>
         </div>
 
-        <span className="sroadmap-order" aria-hidden="true">
-          {node.orderInDay}
-        </span>
-
         {node.imageUrl ? (
           <button
             className="sroadmap-image-trigger"
@@ -298,9 +339,23 @@ export default function RoadMap({
           onClick={() => onNodeClick?.(node.clickId)}
           style={{ cursor: 'pointer' }}
         >
-          <h4 className="sroadmap-title">{node.name}</h4>
+          <h4 className="sroadmap-title">
+            {node.meal ? <span className="sroadmap-meal-chip">{node.meal}</span> : null}
+            {node.name}
+          </h4>
           {node.address && (
             <p className="sroadmap-address">{node.address}</p>
+          )}
+          {mapLink && (
+            <a
+              className="sroadmap-map-link"
+              href={mapLink}
+              target="_blank"
+              rel="noreferrer"
+              onClick={event => event.stopPropagation()}
+            >
+              지도에서 보기
+            </a>
           )}
         </div>
       </motion.article>
@@ -363,13 +418,40 @@ export default function RoadMap({
                   : undefined
               }
             >
-              <div className="sroadmap-day-header-wrap">
-                <h3 className="sroadmap-day-header">
-                  {section.dayNumber}일차
-                  <span className="sroadmap-day-count">
-                    {section.items.length > 0 ? `${section.items.length}곳` : '비어 있음'}
+              {!section.isEmpty ? (
+                <div
+                  className="sroadmap-day-hero"
+                  style={
+                    section.heroImage
+                      ? {
+                          backgroundImage: `linear-gradient(0deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 60%), url(${section.heroImage})`,
+                        }
+                      : {
+                          backgroundImage: `linear-gradient(155deg, ${
+                            DAY_DUO_PALETTE[(section.dayNumber - 1) % DAY_DUO_PALETTE.length][0]
+                          }, ${
+                            DAY_DUO_PALETTE[(section.dayNumber - 1) % DAY_DUO_PALETTE.length][1]
+                          })`,
+                        }
+                  }
+                >
+                  <span className="sroadmap-day-hero-day">
+                    {section.dayNumber}일차 · {section.items.length}곳
+                    {section.totalTravelMinutes > 0
+                      ? ` · 이동 약 ${section.totalTravelMinutes}분`
+                      : ''}
                   </span>
-                </h3>
+                  <span className="sroadmap-day-hero-concept">{section.concept}</span>
+                </div>
+              ) : null}
+
+              <div className="sroadmap-day-header-wrap">
+                {section.isEmpty ? (
+                  <h3 className="sroadmap-day-header">
+                    {section.dayNumber}일차
+                    <span className="sroadmap-day-count">비어 있음</span>
+                  </h3>
+                ) : null}
                 {section.periodSummary ? (
                   <p className="sroadmap-day-period-summary">{section.periodSummary}</p>
                 ) : null}
@@ -381,31 +463,28 @@ export default function RoadMap({
                 ) : null}
               </div>
 
-              {(() => {
-                let lastBandKey = null;
-                return section.items.map(node => {
+              <div className="sroadmap-day-path">
+                {section.items.map((node, i) => {
                   const band = bandByRenderIndex.get(node.renderIndex) || {
                     key: 'flex',
                     label: '순서',
                     hint: '',
                   };
-                  const showBandHead = band.key !== lastBandKey;
-                  lastBandKey = band.key;
-
                   return (
                     <div key={`flow-${node.renderIndex}`} className="sroadmap-item-flow">
-                      {showBandHead ? (
-                        <div
-                          className={`sroadmap-period-band-head sroadmap-period-band-head--inline sroadmap-period-band-head--${band.key}`}
-                        >
-                          <span className="sroadmap-period-band-label">{band.label}</span>
+                      {i > 0 && Number.isFinite(node.travelMinutes) ? (
+                        <div className="sroadmap-travel-hint" aria-hidden="true">
+                          <span className="sroadmap-travel-line" />
+                          <span className="sroadmap-travel-label">
+                            {TRAVEL_MODE_LABEL[node.travelMode] || '이동'} {node.travelMinutes}분
+                          </span>
                         </div>
                       ) : null}
                       {renderPlaceCard(node, section, band)}
                     </div>
                   );
-                });
-              })()}
+                })}
+              </div>
             </section>
           );
         })}
