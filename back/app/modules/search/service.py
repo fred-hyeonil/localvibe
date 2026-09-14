@@ -250,6 +250,12 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
     candidate_ids = [pid for pid, _ in ranked[:scan_cap]]
     sim_map: dict[int, float] = dict(ranked[:scan_cap])
 
+    # 이름 일치 장소는 scan_cap에 잘려도 반드시 후보에 포함
+    for pid in name_boosts:
+        if pid not in sim_map:
+            sim_map[pid] = merged.get(pid, floor_sim)
+            candidate_ids.append(pid)
+
     require_image = os.getenv("GALLERY_REQUIRE_REAL_IMAGE", "1").strip() != "0"
 
     with session_scope() as session:
