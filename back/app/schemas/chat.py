@@ -33,6 +33,11 @@ class TripScheduleEntry(BaseModel):
     placeId: int
     placeName: str = ""
     category: str = ""
+    travelMinutes: Optional[int] = None
+    travelMode: Optional[str] = None
+    meal: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class TripChatRequest(BaseModel):

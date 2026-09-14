@@ -163,14 +163,18 @@ def deduplicate(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def save_places_to_db(places: list[dict[str, Any]]) -> int:
+def save_places_to_db(places: list[dict[str, Any]], batch_size: int = 100) -> int:
     if not places:
         return 0
     n = 0
-    with session_scope() as session:
-        for p in places:
-            places_store.upsert_place_from_pipeline_dict(session, p)
-            n += 1
+    total = len(places)
+    for i in range(0, total, batch_size):
+        batch = places[i:i + batch_size]
+        with session_scope() as session:
+            for p in batch:
+                places_store.upsert_place_from_pipeline_dict(session, p)
+                n += 1
+        logger.info("저장 진행: %d / %d", n, total)
     return n
 
 

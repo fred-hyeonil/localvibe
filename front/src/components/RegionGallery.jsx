@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import {
@@ -6,7 +7,21 @@ import {
 } from '../utils/placeholderImage';
 const SUMMARY_FALLBACK = '광주·전남 추천 스팟 정보를 확인해보세요.';
 
-export default function RegionGallery({ regions, onSelect }) {
+export default function RegionGallery({ regions, onSelect, onLoadMore, hasMore }) {
+  const sentinelRef = useRef(null);
+
+  useEffect(() => {
+    if (!onLoadMore || !hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) onLoadMore(); },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [onLoadMore, hasMore]);
+
   const normalizeSummary = summary => {
     const text = String(summary || '').trim();
     if (!text) return SUMMARY_FALLBACK;
@@ -75,6 +90,9 @@ export default function RegionGallery({ regions, onSelect }) {
           );
         })}
       </div>
+      {hasMore && (
+        <div ref={sentinelRef} style={{ height: 60 }} aria-hidden="true" />
+      )}
     </section>
   );
 }

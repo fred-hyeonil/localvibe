@@ -205,15 +205,37 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
 
     locality_boost = float(os.getenv("GALLERY_LOCALITY_HINT_SCORE_BOOST", "0.42"))
 
+    candidate_ids = [pid for pid, _ in ranked[:scan_cap]]
+    sim_map: dict[int, float] = dict(ranked[:scan_cap])
+
+    require_image = os.getenv("GALLERY_REQUIRE_REAL_IMAGE", "1").strip() != "0"
+
     with session_scope() as session:
+        # 후보 장소 일괄 조회
+        places_map = places_store.get_places_by_ids(session, candidate_ids)
+
+        # 이미지 일괄 조회
+        from sqlalchemy import select as sa_select
+        from app.repositories.places_store import CrawledImage
+        img_rows = session.execute(
+            sa_select(CrawledImage.place_id, CrawledImage.serve_url)
+            .where(CrawledImage.place_id.in_(candidate_ids))
+            .where(CrawledImage.serve_url.isnot(None))
+            .order_by(CrawledImage.place_id, CrawledImage.image_id.asc())
+        ).all()
+        image_map: dict[int, str] = {}
+        for pid, url in img_rows:
+            if pid not in image_map and url:
+                image_map[pid] = str(url).strip()
+
         out: list[dict[str, Any]] = []
-        for place_id, sim in ranked[:scan_cap]:
-            p = places_store.get_place_by_id(session, place_id)
+        for place_id in candidate_ids:
+            p = places_map.get(place_id)
             if not p:
                 continue
-            if os.getenv("GALLERY_REQUIRE_REAL_IMAGE", "1").strip() != "0":
-                if not places_store.place_has_real_display_image(session, place_id):
-                    continue
+            if require_image and place_id not in image_map:
+                continue
+            sim = sim_map[place_id]
             trend = _calc_trend_score(session, place_id)
             rec = _calc_recency_score(p.created_at)
             loc = _calc_location_score(p.region, p.province, region_filter)
@@ -229,10 +251,7 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
                     "insight_json": p.insight_json,
                     "recommendedBusinesses": [],
                 }
-                if any(
-                    place_matches_must_visit(row_stub, phrase)
-                    for phrase in theme_profile.must_visit
-                ):
+                if any(place_matches_must_visit(row_stub, phrase) for phrase in theme_profile.must_visit):
                     final += float(os.getenv("GALLERY_MUST_VISIT_SCORE_BOOST", "0.52"))
                 for theme in theme_profile.themes:
                     if place_matches_theme(row_stub, theme):
@@ -240,13 +259,11 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
                         break
                 if theme_deprioritize_row(row_stub, theme_profile):
                     final -= float(os.getenv("GALLERY_THEME_DEPRIORITIZE_PENALTY", "0.24"))
-            region_dict = places_store.get_as_region_dict(session, place_id)
-            image_url = str((region_dict or {}).get("imageUrl") or "").strip()
             out.append(
                 {
                     "place_id": place_id,
                     "name": p.name,
-                    "imageUrl": image_url,
+                    "imageUrl": image_map.get(place_id, ""),
                     "region": p.region,
                     "province": p.province,
                     "category": p.category,

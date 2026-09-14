@@ -12,140 +12,200 @@ from __future__ import annotations
 import json
 import logging
 import math
+from pathlib import Path
 from typing import Optional
+
+from app.modules.regions.geocode import geocode_address_with_kakao
 
 logger = logging.getLogger(__name__)
 
-_CONTENT_TYPE_TO_SLOTS: dict[str, list[str]] = {
-    "12": ["morning", "afternoon"],
-    "14": ["morning", "afternoon"],
-    "15": ["morning", "afternoon"],
-    "25": ["morning", "afternoon"],
-    "28": ["morning", "afternoon"],
-    "32": [],
-    "38": ["afternoon", "lunch"],
-    "39": ["lunch", "dinner"],
+_TRAVEL_SPEED_KMH_BY_MODE: dict[str, float] = {
+    "walk": 4.5,
+    "public": 22.0,
+    "car": 32.0,
 }
+_DEFAULT_TRAVEL_SPEED_KMH = 18.0  # 이동수단을 안 밝혔을 때 쓰는 도보+대중교통 혼합 가정치
 
-_CATEGORY_TO_SLOTS: dict[str, list[str]] = {
-    "관광지": ["morning", "afternoon"],
-    "문화시설": ["morning", "afternoon"],
-    "레포츠": ["morning", "afternoon"],
-    "쇼핑": ["afternoon", "lunch"],
-    "숙박": [],
-    "음식점": ["lunch", "dinner"],
-    "식당": ["lunch", "dinner"],
-    "맛집": ["lunch", "dinner"],
-    "한식": ["lunch", "dinner"],
-    "양식": ["lunch", "dinner"],
-    "일식": ["lunch", "dinner"],
-    "중식": ["lunch", "dinner"],
-    "고기": ["lunch", "dinner"],
-    "해산물": ["lunch", "dinner"],
-    "분식": ["lunch"],
-    "브런치": ["morning", "lunch"],
-    "카페": ["cafe_am", "cafe_pm"],
-    "디저트": ["cafe_am", "cafe_pm"],
-    "베이커리": ["cafe_am", "cafe_pm"],
-    "커피": ["cafe_am", "cafe_pm"],
-    "박물관": ["morning", "afternoon"],
-    "갤러리": ["morning", "afternoon"],
-    "전시": ["morning", "afternoon"],
-    "역사": ["morning", "afternoon"],
-    "공원": ["morning", "afternoon"],
-    "자연": ["morning", "afternoon"],
-    "해변": ["morning", "afternoon"],
-    "산": ["morning", "afternoon"],
-    "계곡": ["morning", "afternoon"],
-    "체험": ["morning", "afternoon"],
-    "액티비티": ["morning", "afternoon"],
-    "야경": ["night"],
-    "바": ["night"],
-    "야시장": ["night"],
-}
-
-_DAY_SLOTS: list[tuple[str, int, str]] = [
-    ("morning", 1, "오전 관광/자연"),
-    ("lunch", 1, "점심 식사"),
-    ("cafe_am", 1, "점심 후 카페"),
-    ("afternoon", 1, "오후 관광/체험"),
-    ("dinner", 1, "저녁 식사"),
-    ("night", 0, "야경/바 (선택)"),
-]
-
-_SLOT_TIME_LABEL: dict[str, str] = {
-    "morning": "오전",
-    "lunch": "오전",
-    "cafe_am": "오전",
-    "afternoon": "오후",
-    "dinner": "오후",
-    "night": "오후",
-}
+# DB에 좌표(latitude/longitude)가 비어있는 장소가 대부분이라, 주소로 즉석 지오코딩해서
+# 디스크 캐시에 재사용한다. 매 요청마다 같은 인기 장소를 다시 지오코딩하지 않기 위함.
+_GEOCODE_CACHE_PATH = Path(__file__).resolve().parents[3] / "data" / "geocode_cache.json"
+_geocode_cache: Optional[dict[str, Optional[list[float]]]] = None
 
 
-def _period_label_for_index_in_day(index_in_day: int) -> str:
-    return "오전" if index_in_day % 2 == 0 else "오후"
-
-
-def _get_place_slots(row: dict) -> list[str]:
-    insight = {}
+def _load_geocode_cache() -> dict[str, Optional[list[float]]]:
+    global _geocode_cache
+    if _geocode_cache is not None:
+        return _geocode_cache
     try:
-        insight = json.loads(row.get("insight_json") or "{}")
+        if _GEOCODE_CACHE_PATH.exists():
+            _geocode_cache = json.loads(_GEOCODE_CACHE_PATH.read_text(encoding="utf-8"))
+        else:
+            _geocode_cache = {}
     except Exception:
-        pass
-    ct_id = str(insight.get("contentTypeId") or "").strip()
-    if ct_id and ct_id in _CONTENT_TYPE_TO_SLOTS:
-        slots = _CONTENT_TYPE_TO_SLOTS[ct_id]
-        if slots:
-            return slots
-
-    category = str(row.get("category") or "").strip()
-    if category in _CATEGORY_TO_SLOTS:
-        slots = _CATEGORY_TO_SLOTS[category]
-        if slots:
-            return slots
-
-    rec = row.get("recommendedBusinesses") or []
-    for c in rec:
-        c_str = str(c).strip()
-        if c_str in _CATEGORY_TO_SLOTS:
-            return _CATEGORY_TO_SLOTS[c_str]
-        for key, slots in _CATEGORY_TO_SLOTS.items():
-            if key in c_str:
-                return slots
-
-    name = str(row.get("name") or "").lower()
-    desc = str(row.get("description") or row.get("summary") or "").lower()
-    blob = name + desc
-    if any(kw in blob for kw in ["카페", "커피", "브런치", "디저트"]):
-        return ["cafe_am", "cafe_pm"]
-    if any(kw in blob for kw in ["식당", "맛집", "음식", "갈비", "순대", "쌀밥"]):
-        return ["lunch", "dinner"]
-    if any(kw in blob for kw in ["야경", "야간", "밤"]):
-        return ["night"]
-    return ["morning", "afternoon"]
+        _geocode_cache = {}
+    return _geocode_cache
 
 
-def assign_time_slots(place_ids: list[int], rows: list[dict], days: int) -> list[dict]:
-    """모든 place_id를 일차·시간대에 배분 (슬롯당 1개 제한 없음)."""
+def _save_geocode_cache() -> None:
+    if _geocode_cache is None:
+        return
+    try:
+        _GEOCODE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _GEOCODE_CACHE_PATH.write_text(
+            json.dumps(_geocode_cache, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception:
+        logger.exception("[TRIP] 지오코딩 캐시 저장 실패")
+
+
+def _resolve_coord(row: dict) -> Optional[tuple[float, float]]:
+    """장소의 좌표를 구한다. DB 값이 있으면 그대로, 없으면 주소를 지오코딩해서 캐시."""
+    lat, lng = row.get("latitude"), row.get("longitude")
+    if lat is not None and lng is not None:
+        try:
+            return (float(lat), float(lng))
+        except (TypeError, ValueError):
+            pass
+
+    address = str(row.get("address") or "").strip()
+    if not address:
+        return None
+
+    cache = _load_geocode_cache()
+    cache_key = str(row.get("id") or address)
+    if cache_key in cache:
+        cached = cache[cache_key]
+        return (cached[0], cached[1]) if cached else None
+
+    coord = geocode_address_with_kakao(address)
+    cache[cache_key] = [coord[0], coord[1]] if coord else None
+    _save_geocode_cache()
+    return coord
+
+
+_LODGING_KEYWORDS = ("숙박", "호텔", "모텔", "게스트하우스", "펜션", "리조트", "스테이", "hotel")
+_FOOD_KEYWORDS = ("음식점", "맛집", "레스토랑", "식당", "restaurant")
+_FOOD_MAX_PER_DAY = 2
+
+
+def _is_lodging(row: dict) -> bool:
+    category = str(row.get("category") or "")
+    rec = " ".join(str(x) for x in (row.get("recommendedBusinesses") or []))
+    name = str(row.get("name") or "")
+    blob = f"{category} {rec} {name}".lower()
+    return any(kw in blob for kw in _LODGING_KEYWORDS)
+
+
+def _is_food(row: dict) -> bool:
+    category = str(row.get("category") or "")
+    rec = " ".join(str(x) for x in (row.get("recommendedBusinesses") or []))
+    blob = f"{category} {rec}".lower()
+    return any(kw in blob for kw in _FOOD_KEYWORDS)
+
+
+def _rebalance_category_cap(
+    day_buckets: list[list[int]],
+    row_by_id: dict[int, dict],
+    is_match,
+    max_per_day: int,
+    excluded_day_indices: Optional[set[int]] = None,
+) -> None:
+    """특정 카테고리가 하루에 max_per_day개를 넘지 않도록 재배치.
+
+    초과분은 다른 날(excluded_day_indices 제외) 중 여유 있는 곳으로 옮기고,
+    옮길 곳이 없으면 일정에서 제외한다. day_buckets를 제자리에서 수정한다.
+    """
+    excluded = excluded_day_indices or set()
+    days = len(day_buckets)
+    overflow: list[int] = []
+    for day_idx, bucket in enumerate(day_buckets):
+        limit = 0 if day_idx in excluded else max_per_day
+        kept: list[int] = []
+        count = 0
+        for pid in bucket:
+            row = row_by_id.get(pid, {})
+            if is_match(row):
+                if count >= limit:
+                    overflow.append(pid)
+                    continue
+                count += 1
+            kept.append(pid)
+        bucket[:] = kept
+
+    for pid in overflow:
+        for day_idx in range(days):
+            if day_idx in excluded:
+                continue
+            bucket = day_buckets[day_idx]
+            count = sum(1 for p in bucket if is_match(row_by_id.get(p, {})))
+            if count < max_per_day:
+                bucket.append(pid)
+                break
+        # 넣을 자리가 없으면 그 항목은 일정에서 제외한다.
+
+
+def _rebalance_lodging(day_buckets: list[list[int]], row_by_id: dict[int, dict]) -> None:
+    """숙박시설은 하루 최대 1곳, 마지막 날에는 넣지 않는다 (체크아웃 후 이동하는 게 자연스러워서)."""
+    days = len(day_buckets)
+    _rebalance_category_cap(
+        day_buckets, row_by_id, _is_lodging, max_per_day=1, excluded_day_indices={days - 1}
+    )
+
+
+def _rebalance_food(day_buckets: list[list[int]], row_by_id: dict[int, dict]) -> None:
+    """음식점은 하루 최대 _FOOD_MAX_PER_DAY곳으로 제한해 한 카테고리로 몰리지 않게 한다."""
+    _rebalance_category_cap(day_buckets, row_by_id, _is_food, max_per_day=_FOOD_MAX_PER_DAY)
+
+
+def assign_time_slots(
+    place_ids: list[int],
+    rows: list[dict],
+    days: int,
+    transport_mode: Optional[str] = None,
+) -> list[dict]:
+    """장소를 일차별로 나누고, 각 날은 위치 기반으로 가까운 순서로 묶어 오전/오후 두 그룹으로 배분.
+
+    같은 날 안에서 오전/오후가 서로 동떨어진 곳끼리 섞이지 않도록, 좌표가 있는 장소는
+    최근접 이웃 경로(optimize_route_for_day)로 먼저 정렬한 다음 앞/뒤 절반을 오전/오후로 나눈다.
+    이동시간은 이동수단(도보/대중교통/자차)에 따라 다른 평균 속도로 추정한다.
+    """
     if not place_ids:
         return []
     days = max(1, int(days))
     row_by_id = {int(row["id"]): row for row in rows}
-    slot_order = [s for s, _, _ in _DAY_SLOTS]
+    speed_kmh = _TRAVEL_SPEED_KMH_BY_MODE.get(str(transport_mode or ""), _DEFAULT_TRAVEL_SPEED_KMH)
 
     day_buckets: list[list[int]] = [[] for _ in range(days)]
     for idx, pid in enumerate(place_ids):
         day_buckets[idx % days].append(pid)
+    _rebalance_lodging(day_buckets, row_by_id)
+    _rebalance_food(day_buckets, row_by_id)
 
     schedule: list[dict] = []
     for day_num, pids in enumerate(day_buckets, start=1):
         if not pids:
             continue
-        for idx_in_day, pid in enumerate(pids):
+        ordered_ids = optimize_route_for_day(pids, rows)
+        # 숙박은 체크인 개념이므로 동선상 위치와 무관하게 하루의 맨 마지막 순서로 고정한다.
+        lodging_ids = [pid for pid in ordered_ids if _is_lodging(row_by_id.get(pid, {}))]
+        if lodging_ids:
+            ordered_ids = [pid for pid in ordered_ids if pid not in lodging_ids] + lodging_ids
+        half = math.ceil(len(ordered_ids) / 2)
+        prev_coord: Optional[tuple[float, float]] = None
+        for idx_in_day, pid in enumerate(ordered_ids):
             row = row_by_id.get(pid, {})
-            period = _period_label_for_index_in_day(idx_in_day)
-            slot_name = "morning" if idx_in_day % 2 == 0 else "afternoon"
+            period = "오전" if idx_in_day < half else "오후"
+            slot_name = "morning" if idx_in_day < half else "afternoon"
+            coord = _resolve_coord(row)
+            lat, lng = (coord[0], coord[1]) if coord else (row.get("latitude"), row.get("longitude"))
+            travel_minutes = None
+            if prev_coord and coord:
+                dist_km = _haversine_distance(*prev_coord, *coord)
+                travel_minutes = max(1, round(dist_km / speed_kmh * 60))
+            prev_coord = coord or prev_coord
+            meal = None
+            if _is_food(row):
+                meal = "점심" if slot_name == "morning" else "저녁"
             schedule.append(
                 {
                     "day": day_num,
@@ -154,8 +214,11 @@ def assign_time_slots(place_ids: list[int], rows: list[dict], days: int) -> list
                     "place_id": pid,
                     "place_name": row.get("name", ""),
                     "category": str((row.get("recommendedBusinesses") or [""])[0]),
-                    "latitude": row.get("latitude"),
-                    "longitude": row.get("longitude"),
+                    "latitude": lat,
+                    "longitude": lng,
+                    "travel_minutes": travel_minutes,
+                    "travel_mode": transport_mode if travel_minutes is not None else None,
+                    "meal": meal,
                 }
             )
     return schedule
@@ -227,14 +290,9 @@ def optimize_route_for_day(place_ids: list[int], rows: list[dict]) -> list[int]:
     row_by_id = {int(row["id"]): row for row in rows}
     coords_map: dict[int, tuple[float, float]] = {}
     for pid in place_ids:
-        row = row_by_id.get(pid, {})
-        lat = row.get("latitude")
-        lng = row.get("longitude")
-        if lat is not None and lng is not None:
-            try:
-                coords_map[pid] = (float(lat), float(lng))
-            except (TypeError, ValueError):
-                pass
+        coord = _resolve_coord(row_by_id.get(pid, {}))
+        if coord:
+            coords_map[pid] = coord
     if len(coords_map) < 2:
         return place_ids
 
@@ -262,27 +320,6 @@ def optimize_route_for_day(place_ids: list[int], rows: list[dict]) -> list[int]:
         optimized_ids = tsp_ids
 
     return optimized_ids + no_coord_ids
-
-
-def optimize_route_by_day(schedule: list[dict], rows: list[dict], days: int) -> list[dict]:
-    result: list[dict] = []
-    for day in range(1, days + 1):
-        day_entries = [e for e in schedule if e["day"] == day]
-        fixed_slots = {"lunch", "dinner"}
-        fixed = [e for e in day_entries if e["slot"] in fixed_slots]
-        movable = [e for e in day_entries if e["slot"] not in fixed_slots]
-
-        if movable:
-            movable_ids = [e["place_id"] for e in movable]
-            optimized_ids = optimize_route_for_day(movable_ids, rows)
-            id_to_entry = {e["place_id"]: e for e in movable}
-            movable = [id_to_entry[pid] for pid in optimized_ids if pid in id_to_entry]
-
-        slot_order = [s for s, _, _ in _DAY_SLOTS]
-        day_merged = fixed + movable
-        day_merged.sort(key=lambda e: slot_order.index(e["slot"]) if e["slot"] in slot_order else 99)
-        result.extend(day_merged)
-    return result
 
 
 def _matches_geo_filter(row: dict, reg_f: Optional[str], prov_f: Optional[str]) -> bool:
@@ -347,6 +384,7 @@ def build_trip_schedule(
     reg_f: Optional[str] = None,
     prov_f: Optional[str] = None,
     row_by_id: Optional[dict[int, dict]] = None,
+    transport_mode: Optional[str] = None,
 ) -> tuple[list[int], str, list[dict]]:
     if row_by_id is None:
         row_by_id = {int(r["id"]): r for r in rows}
@@ -356,8 +394,7 @@ def build_trip_schedule(
     if not place_ids:
         return [], "", []
 
-    schedule = assign_time_slots(place_ids, rows, days)
-    schedule = optimize_route_by_day(schedule, rows, days)
+    schedule = assign_time_slots(place_ids, rows, days, transport_mode=transport_mode)
     ordered_ids = schedule_to_ordered_ids(schedule)
     schedule_ctx = schedule_to_prompt_context(schedule)
     return ordered_ids, schedule_ctx, schedule

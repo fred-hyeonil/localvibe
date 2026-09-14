@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -108,10 +109,15 @@ def pinecone_ready() -> bool:
     return _get_pinecone_index() is not None
 
 
-def embed_text(text: str) -> list[float]:
+@lru_cache(maxsize=512)
+def _embed_text_cached(text: str) -> tuple[float, ...]:
     model = _get_model()
     vec = model.encode(text, convert_to_numpy=True)
-    return vec.tolist()
+    return tuple(vec.tolist())
+
+
+def embed_text(text: str) -> list[float]:
+    return list(_embed_text_cached(text))
 
 
 def embed_texts_batch(texts: list[str], batch_size: int = 64) -> list[list[float]]:
@@ -381,27 +387,39 @@ def search_with_scores(
         flt["province"] = {"$eq": province_filter}
     mult = max(1, int(os.getenv("GALLERY_PINECONE_QUERY_MULTIPLIER", "4")))
     fetch_k = max(1, min(top_k * mult, 100))
-    try:
-        kwargs: dict[str, Any] = {
-            "vector": dense_vec,
-            "top_k": fetch_k,
-            "include_metadata": True,
-        }
-        if sparse_vec:
-            try:
-                from pinecone_text.hybrid import hybrid_convex_scale
+    base_kwargs: dict[str, Any] = {
+        "vector": dense_vec,
+        "top_k": fetch_k,
+        "include_metadata": True,
+    }
+    if flt:
+        base_kwargs["filter"] = flt
 
-                dense_scaled, sparse_scaled = hybrid_convex_scale(dense_vec, sparse_vec, alpha=alpha)
-                kwargs["vector"] = dense_scaled
-                kwargs["sparse_vector"] = sparse_scaled
-            except Exception:
-                kwargs["sparse_vector"] = sparse_vec
-        if flt:
-            kwargs["filter"] = flt
+    kwargs = dict(base_kwargs)
+    if sparse_vec:
+        try:
+            from pinecone_text.hybrid import hybrid_convex_scale
+            dense_scaled, sparse_scaled = hybrid_convex_scale(dense_vec, sparse_vec, alpha=alpha)
+            kwargs["vector"] = dense_scaled
+            kwargs["sparse_vector"] = sparse_scaled
+        except Exception:
+            kwargs["sparse_vector"] = sparse_vec
+
+    try:
         res = index.query(**kwargs)
-    except Exception:
-        logger.exception("[embed] hybrid search_with_scores failed")
-        return []
+    except Exception as e:
+        # sparse vector 미지원 인덱스 (cosine metric) 이면 dense-only로 폴백
+        if "sparse" in str(e).lower() and "sparse_vector" in kwargs:
+            logger.warning("[embed] sparse 미지원 인덱스 — dense-only로 재시도")
+            kwargs_dense = dict(base_kwargs)
+            try:
+                res = index.query(**kwargs_dense)
+            except Exception:
+                logger.exception("[embed] dense-only search_with_scores failed")
+                return []
+        else:
+            logger.exception("[embed] hybrid search_with_scores failed")
+            return []
     best: dict[int, float] = {}
     for m in res.matches or []:
         meta = getattr(m, "metadata", None) or {}

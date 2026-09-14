@@ -4,7 +4,8 @@ import { filterRegionsBySidebarLocation } from '../../utils/sidebarLocationFilte
 import { API_BASE_URL } from '../../shared/api/client';
 import { defaultRegions } from '../../data/defaultRegions';
 
-const FEED_SIZE = 15;
+const FEED_SIZE = 30;
+const PAGE_SIZE = 30;
 const VECTOR_ACTIVE_KEY = 'lv_gallery_vector_active';
 const SEARCH_RESULTS_KEY = 'lv_gallery_search_results';
 
@@ -57,9 +58,10 @@ export function pickFeedItems(items, size = FEED_SIZE) {
   return dedupeFeedPick(shuffled, [], new Set(), new Set(), size);
 }
 
-export function pickOrderedFeedItems(items, size = FEED_SIZE) {
+export function pickOrderedFeedItems(items, size = 0) {
   if (!Array.isArray(items) || !items.length) return [];
-  return dedupeFeedPick(items, [], new Set(), new Set(), size);
+  if (size > 0) return dedupeFeedPick(items, [], new Set(), new Set(), size);
+  return dedupeFeedPick(items, [], new Set(), new Set(), items.length);
 }
 
 export function feedHasDisplayImages(list) {
@@ -92,10 +94,7 @@ function readPersistedResults() {
     if (!raw) return null;
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr) || arr.length === 0) return null;
-    return pickOrderedFeedItems(
-      arr.map(r => normalizeRegionMediaFields({ ...r })),
-      FEED_SIZE,
-    );
+    return pickOrderedFeedItems(arr.map(r => normalizeRegionMediaFields({ ...r })));
   } catch {
     return null;
   }
@@ -114,6 +113,15 @@ function clearVectorLock(lockRef) {
     sessionStorage.removeItem(SEARCH_RESULTS_KEY);
   } catch {}
   if (lockRef) lockRef.current = false;
+}
+
+function shuffleArray(arr) {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 function mapSearchHitToRegion(row, regionMap) {
@@ -158,9 +166,17 @@ export function useGalleryFeed() {
   clearPersistedResultsOnReload();
 
   const [regions, setRegions] = useState(DEFAULT_REGIONS_NORMALIZED);
+  // 초기 피드 또는 검색 결과 (infinite scroll 이전 표시용)
   const [displayedRegions, setDisplayedRegions] = useState(() =>
     isVectorLocked() ? (readPersistedResults() ?? []) : [],
   );
+  // 전체 regions를 셔플한 풀 — 무한 스크롤 페이지네이션 소스
+  const [shuffledAll, setShuffledAll] = useState([]);
+  // 기본 피드에서 현재 몇 개까지 보여줄지
+  const [displayedCount, setDisplayedCount] = useState(FEED_SIZE);
+  // 검색 결과를 보여주는 모드인지 (반응형 상태)
+  const [vectorMode, setVectorMode] = useState(isVectorLocked());
+
   const [feedLoading, setFeedLoading] = useState(() => !isVectorLocked());
   const [searchBusy, setSearchBusy] = useState(false);
 
@@ -190,9 +206,11 @@ export function useGalleryFeed() {
           !arr.some(r => String(r?.imageUrl || '').trim())
         ) {
           clearVectorLock(vectorActiveRef);
+          if (m) setVectorMode(false);
         }
       } catch {
         clearVectorLock(vectorActiveRef);
+        if (m) setVectorMode(false);
       }
     }
     const locked = isVectorLocked();
@@ -229,11 +247,16 @@ export function useGalleryFeed() {
           normalizeRegionMediaFields({ ...r }),
         );
         setRegions(normalized);
+
+        // 무한 스크롤을 위한 안정적인 셔플 풀 생성
+        const shuffled = shuffleArray(normalized);
+        if (m) setShuffledAll(shuffled);
+
         if (!vectorActiveRef.current && !isVectorLocked()) {
           setDisplayedRegions(prev =>
             feedHasDisplayImages(prev)
               ? prev
-              : pickFeedItems(normalized, FEED_SIZE),
+              : shuffled.slice(0, FEED_SIZE),
           );
         }
       } catch {
@@ -277,6 +300,8 @@ export function useGalleryFeed() {
       .filter(Boolean);
     if (!normalized.length) return false;
     clearVectorLock(vectorActiveRef);
+    setVectorMode(false);
+    setDisplayedCount(FEED_SIZE);
     setDisplayedRegions(normalized);
     return true;
   }, []);
@@ -303,9 +328,11 @@ export function useGalleryFeed() {
         );
         if (seq !== searchSeqRef.current) return false;
         if (mapped.length > 0) {
-          const feed = pickOrderedFeedItems(mapped, FEED_SIZE);
+          // 검색 결과는 전체 표시 (size 제한 없음)
+          const feed = pickOrderedFeedItems(mapped);
           vectorActiveRef.current = true;
           persistVectorResults(feed);
+          setVectorMode(true);
           setDisplayedRegions(feed);
           return true;
         }
@@ -326,6 +353,8 @@ export function useGalleryFeed() {
       const key = String(label || '').trim();
       if (!key) return;
       clearVectorLock(vectorActiveRef);
+      setVectorMode(false);
+      setDisplayedCount(FEED_SIZE);
       try {
         const res = await fetch(
           `${API_BASE_URL}/api/regions?place_in=${encodeURIComponent(key)}`,
@@ -342,32 +371,46 @@ export function useGalleryFeed() {
     [regions, applySidebarFeed],
   );
 
+  // 무한 스크롤: 다음 PAGE_SIZE개 로드
+  const loadMore = useCallback(() => {
+    if (vectorMode || shuffledAll.length === 0) return;
+    setDisplayedCount(c => Math.min(c + PAGE_SIZE, shuffledAll.length));
+  }, [vectorMode, shuffledAll.length]);
+
+  const hasMore = !vectorMode && shuffledAll.length > displayedCount;
+
   // 표시용 regions (regionMap으로 필드 보강)
-  const galleryDisplayRegions = useMemo(
-    () =>
-      displayedRegions.map(r => {
-        const id = Number(r?.id);
-        if (!Number.isFinite(id)) return r;
-        const base = regionMap.get(id);
-        if (!base) return r;
-        const s =
-          r.summary &&
-          String(r.summary).trim() &&
-          r.summary !== '상세 설명이 없습니다.'
-            ? r.summary
-            : base.summary || r.summary;
-        return {
-          ...r,
-          imageUrl: base.imageUrl || r.imageUrl || '',
-          summary: s,
-          address: r.address || base.address,
-          latitude: r.latitude ?? base.latitude,
-          longitude: r.longitude ?? base.longitude,
-          province: r.province || base.province,
-        };
-      }),
-    [displayedRegions, regionMap],
-  );
+  const galleryDisplayRegions = useMemo(() => {
+    // 검색 모드: 검색 결과 전체 표시
+    // 기본 모드: shuffledAll에서 displayedCount만큼 페이지네이션
+    const source = vectorMode
+      ? displayedRegions
+      : shuffledAll.length > 0
+        ? shuffledAll.slice(0, displayedCount)
+        : displayedRegions;
+
+    return source.map(r => {
+      const id = Number(r?.id);
+      if (!Number.isFinite(id)) return r;
+      const base = regionMap.get(id);
+      if (!base) return r;
+      const s =
+        r.summary &&
+        String(r.summary).trim() &&
+        r.summary !== '상세 설명이 없습니다.'
+          ? r.summary
+          : base.summary || r.summary;
+      return {
+        ...r,
+        imageUrl: base.imageUrl || r.imageUrl || '',
+        summary: s,
+        address: r.address || base.address,
+        latitude: r.latitude ?? base.latitude,
+        longitude: r.longitude ?? base.longitude,
+        province: r.province || base.province,
+      };
+    });
+  }, [vectorMode, displayedRegions, shuffledAll, displayedCount, regionMap]);
 
   return {
     regions,
@@ -375,6 +418,9 @@ export function useGalleryFeed() {
     galleryDisplayRegions,
     feedLoading,
     searchBusy,
+    isDefaultFeed: !vectorMode,
+    hasMore,
+    loadMore,
     handleVectorSearch,
     handleSidebarRegionClick,
   };

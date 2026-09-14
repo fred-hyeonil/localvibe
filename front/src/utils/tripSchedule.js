@@ -168,6 +168,11 @@ export function applyScheduleToRegions(regions, schedule) {
       tripDay: meta.day,
       tripTime: normalizePeriodLabel(meta.time, meta.slot),
       tripSlot: meta.slot,
+      tripTravelMinutes: meta.travelMinutes ?? null,
+      tripTravelMode: meta.travelMode ?? null,
+      tripMeal: meta.meal ?? null,
+      tripLat: meta.latitude ?? null,
+      tripLng: meta.longitude ?? null,
     };
   });
 }

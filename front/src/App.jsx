@@ -256,6 +256,9 @@ export default function App() {
     galleryDisplayRegions,
     feedLoading: galleryFeedLoading,
     searchBusy: gallerySearchBusy,
+    isDefaultFeed: galleryIsDefaultFeed,
+    hasMore: galleryHasMore,
+    loadMore: galleryLoadMore,
     handleVectorSearch: handleGalleryVectorSearch,
     handleSidebarRegionClick,
   } = useGalleryFeed();
@@ -653,6 +656,11 @@ export default function App() {
                 )}
               {!gallerySearchBusy && (
                 <div className="gallery-results-fade">
+                  {galleryIsDefaultFeed && galleryDisplayRegions.length > 0 && (
+                    <p style={{ fontSize: 12, color: '#aaa', textAlign: 'right', margin: '0 4px 8px', letterSpacing: '0.03em' }}>
+                      랜덤 추천 · 검색으로 취향에 맞는 장소를 찾아보세요
+                    </p>
+                  )}
                   <RegionGallery
                     regions={galleryDisplayRegions}
                     scrappedIds={scrappedIds}
@@ -662,6 +670,8 @@ export default function App() {
                       setSelectedRegion(region);
                       setInsightRegion(null);
                     }}
+                    onLoadMore={galleryLoadMore}
+                    hasMore={galleryHasMore}
                   />
                 </div>
               )}

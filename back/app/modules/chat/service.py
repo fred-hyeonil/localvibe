@@ -17,6 +17,7 @@ from app.modules.search import recommend as recommend_core
 from app.modules.search.preferences import (
     apply_row_theme_score_boost,
     detect_exclusion_tags,
+    detect_exclusion_tags_with_history,
     detect_trip_theme_profile,
     dspy_theme_instruction_lines,
     exclusion_prompt_lines,
@@ -184,7 +185,8 @@ _MOOD_KEYWORDS: dict[str, list[str]] = {
 }
 
 _TRANSPORT_KEYWORDS: dict[str, list[str]] = {
-    "public": ["대중교통", "버스", "지하철", "기차", "도보", "걸어서"],
+    "walk": ["도보", "걸어서", "뚜벅이", "걷기"],
+    "public": ["대중교통", "버스", "지하철", "기차"],
     "car": ["자차", "차", "드라이브", "자가용", "렌트"],
 }
 
@@ -354,7 +356,8 @@ def _parse_intent(
                         "- culture : 전시, 박물관, 갤러리, 역사, 체험\n"
                         "- null    : 언급 없음\n\n"
                         "[transport] 이동 수단\n"
-                        "- public : 대중교통, 버스, 지하철, 기차, 도보, 걸어서, 뚜벅이\n"
+                        "- walk   : 도보, 걸어서, 뚜벅이, 걷기 위주\n"
+                        "- public : 대중교통, 버스, 지하철, 기차\n"
                         "- car    : 자차, 차, 드라이브, 자가용, 렌트\n"
                         "- null   : 언급 없음 또는 혼용(버스도 타고 걷기도 한다 → public)\n\n"
                         "[duration] 여행 기간 (숫자)\n"
@@ -364,7 +367,7 @@ def _parse_intent(
                         "- null : 언급 없음\n\n"
                         "=== 주의사항 ===\n"
                         "- '분좋카'는 mood=calm으로 분류하세요.\n"
-                        "- '뚜벅이'는 단독이면 transport=public, '뚜벅이 혼자'면 relation=solo도 추가하세요.\n"
+                        "- '뚜벅이'는 단독이면 transport=walk, '뚜벅이 혼자'면 relation=solo도 추가하세요.\n"
                         "- 버스도 타고 걷기도 한다는 표현은 transport=public으로 분류하세요.\n"
                         "- 확실하지 않으면 null로 반환하세요. 억지로 분류하지 마세요.\n"
                         "- 반드시 JSON 한 개만 반환하세요."
@@ -377,7 +380,7 @@ def _parse_intent(
                         "반환 형식:\n"
                         '{"relation": "couple|family|friends|formal|solo|null", '
                         '"mood": "calm|trendy|local|nature|night|food|culture|null", '
-                        '"transport": "public|car|null", '
+                        '"transport": "walk|public|car|null", '
                         '"duration": 1|2|3|null}'
                     ),
                 },
@@ -483,7 +486,9 @@ def _build_system_prompt(intent: dict) -> str:
     if theme_lines:
         extras.append(theme_lines)
 
-    if transport == "public":
+    if transport == "walk":
+        extras.append("도보로 다닐 예정이니 서로 가깝게 모여 있는 장소 위주로 우선하세요.")
+    elif transport == "public":
         extras.append("대중교통 접근이 편리한 장소를 우선하세요.")
     elif transport == "car":
         extras.append("주차가 편리하거나 드라이브 코스로 좋은 장소를 우선하세요.")
@@ -671,7 +676,7 @@ def _trip_answer_from_ids(region_ids: list[int], rows: list[dict]) -> str:
         if region_id in row_map
     ]
     if not picked:
-        return "요청하신 조건과 유사한 정보를 찾지 못했습니다."
+        return "조건에 맞는 장소를 찾지 못했어요. 지역명을 조금 넓히거나 제외 조건을 줄여서 다시 요청해 주세요."
     preview = ", ".join(picked[:6])
     suffix = " ..." if len(picked) > 6 else ""
     return f"요청 반영 완료! 총 {len(picked)}개 장소를 추천했어요: {preview}{suffix}"
@@ -1250,6 +1255,7 @@ def _apply_trip_schedule(
     reg_f: Optional[str],
     prov_f: Optional[str],
     row_by_id: dict[int, dict],
+    transport_mode: Optional[str] = None,
 ) -> tuple[list[int], str, list[dict]]:
     try:
         from app.modules.chat.planner import build_trip_schedule
@@ -1261,6 +1267,7 @@ def _apply_trip_schedule(
             reg_f=reg_f,
             prov_f=prov_f,
             row_by_id=row_by_id,
+            transport_mode=transport_mode,
         )
     except Exception:
         logger.warning("[TRIP] trip_planner_utils 실패 -> 기존 정렬 로직 폴백")
@@ -1435,6 +1442,39 @@ def _refine_fill_slots(
     return _filter_ids_by_geo(new_ids, row_by_id, reg_f, prov_f)
 
 
+def _infer_region_from_existing_ids(
+    current_location_ids: Optional[list[int]],
+    row_by_id: dict[int, dict],
+) -> tuple[Optional[str], Optional[str]]:
+    """지역 언급이 없는 메시지("차로 갈게", "다시 해줘")에서 기존 로드맵의 지역을 이어받는다.
+
+    안 그러면 지역 필터가 빈 채로 빈 슬롯을 채우다가 엉뚱한 지역 장소가 섞여 들어간다.
+    DB의 region/province 컬럼은 도 단위(예: "전라남도")까지만 채워져 있어 시·군 구분이
+    없으므로, 시·군(여수 등)은 기존 장소의 이름·주소 텍스트에서 도시 토큰을 찾아 판단한다.
+    """
+    city_counts: dict[str, int] = {}
+    province_counts: dict[str, int] = {}
+    for pid in current_location_ids or []:
+        row = row_by_id.get(int(pid)) or {}
+        province_label = str(row.get("province") or row.get("region") or "").strip()
+        if province_label:
+            province_counts[province_label] = province_counts.get(province_label, 0) + 1
+        blob = " ".join(
+            [str(row.get("name") or ""), str(row.get("address") or ""), str(row.get("summary") or "")[:120]]
+        )
+        for city in sorted(_CITY_TOKEN_TO_PROVINCE.keys(), key=len, reverse=True):
+            if city in blob:
+                city_counts[city] = city_counts.get(city, 0) + 1
+                break
+    if not city_counts and not province_counts:
+        return None, None
+    if city_counts:
+        carried_city = max(city_counts.items(), key=lambda kv: kv[1])[0]
+        return carried_city, _CITY_TOKEN_TO_PROVINCE.get(carried_city)
+    carried_province = max(province_counts.items(), key=lambda kv: kv[1])[0]
+    return None, carried_province
+
+
 def _refine_current_itinerary(
     user_message: str,
     current_location_ids: list[int],
@@ -1448,6 +1488,7 @@ def _refine_current_itinerary(
     current_schedule: Optional[list[dict]] = None,
     trip_days: int = 1,
     items_per_day: int = 6,
+    recent_messages: Optional[list[dict]] = None,
 ) -> tuple[list[int], str]:
     """
     로드맵 일정을 유지·조정: 제외·테마(카페 등) 반영, 꽉 찬 일정은 일부 교체.
@@ -1468,7 +1509,9 @@ def _refine_current_itinerary(
         r"카페|식당|맛집|음식", user_message
     ):
         intent["mood"] = intent.get("mood") or "food"
-    exclusion_tags = set(intent.get("exclusions") or detect_exclusion_tags(user_message))
+    exclusion_tags = set(
+        intent.get("exclusions") or detect_exclusion_tags_with_history(user_message, recent_messages)
+    )
     intent["exclusions"] = exclusion_tags
 
     target_day = detect_refine_target_day(user_message)
@@ -1497,6 +1540,11 @@ def _refine_current_itinerary(
         if not row:
             continue
         if exclusion_tags and not row_passes_exclusions(row, exclusion_tags):
+            removed_labels.append(str(row.get("name") or "장소"))
+            continue
+        if (reg_f or prov_f) and not _trip_row_matches_geo_filter(row, reg_f, prov_f):
+            # 사용자가 이번 메시지에서 지역을 새로 지정했는데 기존 로드맵에 다른 지역
+            # 장소가 남아있으면(예: 이전 요청 잔재) 계속 들고 가지 않고 걸러낸다.
             removed_labels.append(str(row.get("name") or "장소"))
             continue
         kept.append(int(pid))
@@ -1538,7 +1586,7 @@ def _refine_current_itinerary(
         shown = "·".join(removed_labels[:3])
         if len(removed_labels) > 3:
             shown += f" 외 {len(removed_labels) - 3}곳"
-        parts.append(f"{shown}은(는) 일정에서 뺐어요.")
+        parts.append(f"{shown}{_josa_eun_neun(shown)} 일정에서 뺐어요.")
     if new_ids:
         added_names = [
             str(row_by_id[i].get("name") or "")
@@ -1720,6 +1768,154 @@ def _refine_single_day_itinerary(
             parts.append(f"추가·교체: {', '.join(names)}.")
     answer = " ".join(parts)
     return merged, answer
+
+
+_DAY_ORDINAL_LABELS = ["첫째날", "둘째날", "셋째날", "넷째날", "다섯째날", "여섯째날", "일곱째날"]
+
+
+def _day_label(day_num: int) -> str:
+    if 1 <= day_num <= len(_DAY_ORDINAL_LABELS):
+        return _DAY_ORDINAL_LABELS[day_num - 1]
+    return f"{day_num}일차"
+
+
+def _josa_eun_neun(word: str) -> str:
+    """마지막 글자 받침 유무로 '은/는' 조사를 고른다."""
+    if not word:
+        return "는"
+    code = ord(word[-1])
+    if 0xAC00 <= code <= 0xD7A3:
+        return "은" if (code - 0xAC00) % 28 != 0 else "는"
+    return "는"
+
+
+def _extract_preference_phrase(user_message: str, intent: dict) -> str:
+    """사용자가 명시한 선호(카페·맛집 등)를 인트로 문장에 쓸 짧은 구절로 뽑는다."""
+    wants_cafe = "카페" in user_message or "커피" in user_message
+    wants_food = any(kw in user_message for kw in ["맛집", "먹거리", "음식", "식당"])
+    if wants_cafe and wants_food:
+        return "카페·맛집 위주로"
+    if wants_cafe:
+        return "카페 위주로"
+    if wants_food:
+        return "맛집 위주로"
+    mood_phrases = {
+        "calm": "잔잔하고 여유로운 분위기로",
+        "trendy": "요즘 뜨는 핫플 위주로",
+        "local": "진짜 로컬 감성 위주로",
+        "nature": "자연 속에서 힐링할 수 있게",
+        "night": "야경 명소 위주로",
+        "food": "맛집 위주로",
+        "culture": "문화·전시 위주로",
+    }
+    mood = intent.get("mood")
+    if mood in mood_phrases:
+        return mood_phrases[mood]
+    return "분위기 좋은 곳들로"
+
+
+def _destination_label(reg_f: Optional[str], prov_f: Optional[str], ids: list[int], row_by_id: dict[int, dict]) -> str:
+    if reg_f:
+        return reg_f
+    if prov_f:
+        return prov_f
+    counts: dict[str, int] = {}
+    for pid in ids:
+        row = row_by_id.get(pid) or {}
+        label = str(row.get("region") or row.get("province") or "").strip()
+        if label:
+            counts[label] = counts.get(label, 0) + 1
+    if counts:
+        return max(counts.items(), key=lambda kv: kv[1])[0]
+    return "이 지역"
+
+
+_TRANSPORT_INTRO_PHRASE: dict[str, str] = {
+    "walk": "도보 이동 기준으로 ",
+    "public": "대중교통 이동 기준으로 ",
+    "car": "자차 이동 기준으로 ",
+}
+
+
+def _build_personalized_trip_answer(
+    ids: list[int],
+    schedule: list[dict],
+    row_by_id: dict[int, dict],
+    intent: dict,
+    user_message: str,
+    trip_duration: dict,
+    reg_f: Optional[str],
+    prov_f: Optional[str],
+    fallback_answer: str,
+    transport_mode: Optional[str] = None,
+) -> str:
+    """id·일정이 정해진 뒤, DSPy/GPT 어느 경로로 골랐든 동일한 일자별 요약 포맷으로 답변을 조립."""
+    if not ids or not schedule:
+        return fallback_answer
+
+    by_day: dict[int, list[int]] = {}
+    for entry in schedule:
+        try:
+            day_num = int(entry.get("day") or 1)
+            place_id = int(entry.get("place_id", entry.get("placeId")))
+        except (TypeError, ValueError):
+            continue
+        by_day.setdefault(day_num, []).append(place_id)
+    if not by_day:
+        return fallback_answer
+
+    nights = int(trip_duration.get("nights") or 0)
+    days = int(trip_duration.get("days") or 1)
+    duration_label = "당일치기" if days <= 1 else f"{nights}박 {days}일"
+    destination = _destination_label(reg_f, prov_f, ids, row_by_id)
+    preference_phrase = _extract_preference_phrase(user_message, intent)
+    transport_phrase = _TRANSPORT_INTRO_PHRASE.get(str(transport_mode or ""), "")
+
+    lines = [
+        f"{transport_phrase}회원님을 위해 {destination} {duration_label}, "
+        f"{preference_phrase} 일정을 준비했어요!"
+    ]
+    local_pick_name: Optional[str] = None
+    for day_num in sorted(by_day.keys()):
+        day_names: list[str] = []
+        for pid in by_day[day_num]:
+            row = row_by_id.get(pid) or {}
+            name = str(row.get("name") or "").strip()
+            if name:
+                day_names.append(name)
+            if local_pick_name is None and intent.get("mood") == "local":
+                summary = str(row.get("summary") or "")
+                if any(kw in summary for kw in ["로컬", "골목", "동네", "숨은"]):
+                    local_pick_name = row.get("name")
+        if day_names:
+            if len(day_names) <= 3:
+                day_summary = ", ".join(day_names)
+            else:
+                day_summary = f"{', '.join(day_names[:3])} 등 {len(day_names)}곳"
+            lines.append(f"{_day_label(day_num)} : {day_summary}")
+
+    if intent.get("mood") == "local" and not local_pick_name:
+        all_ids = [pid for pids in by_day.values() for pid in pids]
+        if all_ids:
+            local_pick_name = (row_by_id.get(all_ids[0]) or {}).get("name")
+    if local_pick_name:
+        lines.append(f"특히 진짜 로컬을 느끼고 싶다면 : {local_pick_name}")
+
+    travel_vals = [
+        v
+        for entry in schedule
+        if isinstance((v := entry.get("travel_minutes", entry.get("travelMinutes"))), (int, float))
+    ]
+    if travel_vals and (sum(travel_vals) / len(travel_vals)) > 45:
+        lines.append(
+            f"참고로 {destination}{_josa_eun_neun(destination)} 범위가 넓어서 장소 사이 이동에 시간이 좀 걸려요. "
+            "더 좁은 지역으로 요청하시면 여유로운 일정으로 다시 짜드릴게요."
+        )
+
+    if not transport_mode:
+        lines.append("이동수단이 어떻게 되세요? 차·대중교통·도보 중 알려주시면 이동시간을 더 정확하게 맞춰드릴게요.")
+
+    return "\n".join(lines)
 
 
 def _pack_trip_response(
@@ -1996,8 +2192,78 @@ def _build_trip_spot_context(rows_subset: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _answer_for_unknown_place(
+    place_name: str, user_message: str, api_key: Optional[str]
+) -> tuple[str, Optional[str]]:
+    """DB 후보에 없는 구체적 장소명 질문에 GPT 일반 지식으로 자연스럽게 답변.
+
+    반환: (사용자에게 보여줄 answer, 추정된 지역명 또는 None)
+    """
+    if not api_key:
+        return (
+            f"'{place_name}'은(는) 아직 저희 데이터에서 확인이 어려운 곳이에요. "
+            "근처 지역명이나 다른 장소로 다시 말씀해 주시겠어요?",
+            None,
+        )
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "당신은 한국 국내 여행 플래너 어시스턴트입니다. 사용자가 언급한 장소는 저희 서비스 "
+                        "자체 장소 DB에는 없는 곳입니다. 이 서비스는 대한민국 국내 여행만 다루므로, "
+                        "특별히 해외 지명이라고 확신할 근거가 없다면 먼저 대한민국 내의 동명·유사 장소로 "
+                        "해석하세요 (예: '챔피언스필드'는 광주 기아 챔피언스필드 야구장을 의미). "
+                        "당신이 아는 지식으로 그 장소가 무엇인지, 대한민국 내 정확히 어느 시/도에 있는지 "
+                        "한두 문장으로 자연스럽게 설명하고, DB에는 아직 없어 로드맵에 바로 담을 수는 없지만 "
+                        "같은 지역의 다른 장소를 대신 찾아드릴 수 있다고 짧고 친근하게 안내하세요. "
+                        "확실히 모르는 장소라면 추측하지 말고 모른다고 솔직히 말하세요. "
+                        '반드시 JSON 객체 한 개로만 응답하세요: {"answer": "...", "region": "시/도 또는 '
+                        '시/군/구 이름 (모르면 null)"}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"장소명: {place_name}\n사용자 메시지: {user_message}",
+                },
+            ],
+        )
+        parsed = json.loads(response.choices[0].message.content or "{}")
+        answer = str(parsed.get("answer") or "").strip()
+        region = parsed.get("region")
+        region = (
+            str(region).strip()
+            if region and str(region).strip().lower() not in ("null", "none", "")
+            else None
+        )
+        if not answer:
+            answer = f"'{place_name}'에 대한 정보를 찾지 못했어요."
+        return answer, region
+    except Exception:
+        logger.exception("[CHAT] unknown place GPT lookup failed name=%s", place_name)
+        return (
+            f"'{place_name}'은(는) 아직 저희 데이터에서 확인이 어려워요. "
+            "근처 지역명으로 다시 물어봐 주시겠어요?",
+            None,
+        )
+
+
+def _normalize_place_name_key(text: str) -> str:
+    """공백·하이픈·괄호 등 표기 차이를 무시하고 비교하기 위한 정규화 키.
+
+    예: '챔피언스필드' ↔ DB상 '광주-기아 챔피언스 필드' 처럼 표기만 다른 동일 장소를
+    단순 substring 매칭이 놓치는 걸 방지한다.
+    """
+    return re.sub(r"[\s\-\(\)·,]", "", str(text or "")).lower()
+
+
 def _find_location_id_by_name(name: str, rows: list[dict]) -> Optional[int]:
-    """장소 이름(문자열)을 location ID로 매핑. 정확 매칭 → 부분 매칭 순서."""
+    """장소 이름(문자열)을 location ID로 매핑. 정확 매칭 → 부분 매칭 → 정규화 매칭 순서."""
     if not name:
         return None
     name_stripped = name.strip()
@@ -2007,6 +2273,23 @@ def _find_location_id_by_name(name: str, rows: list[dict]) -> Optional[int]:
     for row in rows:
         if name_stripped in row.get("name", "") or row.get("name", "") in name_stripped:
             return int(row["id"])
+    key = _normalize_place_name_key(name_stripped)
+    if key:
+        for row in rows:
+            row_key = _normalize_place_name_key(row.get("name", ""))
+            if row_key and (key in row_key or row_key in key):
+                return int(row["id"])
+    # 지역명이 접두어로 붙거나("광주 챔피언스필드") 중간에 다른 단어가 끼어("광주-기아
+    # 챔피언스 필드") 전체 문자열 포함 매칭이 실패할 때, 가장 긴 단어 단위로 한 번 더 시도.
+    words = sorted({w for w in name_stripped.split() if len(w) >= 2}, key=len, reverse=True)
+    for word in words:
+        word_key = _normalize_place_name_key(word)
+        if len(word_key) < 3:
+            continue
+        for row in rows:
+            row_key = _normalize_place_name_key(row.get("name", ""))
+            if row_key and word_key in row_key:
+                return int(row["id"])
     return None
 
 
@@ -2086,6 +2369,15 @@ def _detect_trip_action(
                             "type": "string",
                             "description": "remove 또는 replace일 때, 대상 장소의 이름. 해당 없으면 null.",
                         },
+                        "mentioned_place_name": {
+                            "type": "string",
+                            "description": (
+                                "사용자 메시지에서 언급된 구체적인 실제 장소·시설 고유명사 "
+                                "(예: '챔피언스필드', '경기장', 특정 카페·식당 이름 등). "
+                                "저희 서비스 DB에 있을 수도 없을 수도 있음 — 그냥 언급된 이름을 그대로 적으세요. "
+                                "특정 고유명사 언급이 없으면 null."
+                            ),
+                        },
                         "unsupported_reason": {
                             "type": "string",
                             "description": "action이 unsupported일 때, 사용자에게 전달할 짧은 안내 메시지.",
@@ -2164,6 +2456,7 @@ def _detect_trip_action(
         result = {
             "action": args.get("action", "recommend"),
             "target_location_name": args.get("target_location_name"),
+            "mentioned_place_name": args.get("mentioned_place_name"),
             "detected_duration": detected_duration,
             "unsupported_reason": args.get("unsupported_reason"),
         }
@@ -2206,6 +2499,14 @@ def get_trip_chat_result(
     rows = load_regions()
     valid_region_ids = {int(row["id"]) for row in rows}
 
+    # 이동수단(도보/대중교통/자차) - GPT 호출 없이 키워드로 가볍게 뽑아서 이동시간 계산에 씀.
+    transport_mode: Optional[str] = None
+    _msg_lower = user_message.lower()
+    for _tr_key, _tr_kws in _TRANSPORT_KEYWORDS.items():
+        if any(kw in _msg_lower for kw in _tr_kws):
+            transport_mode = _tr_key
+            break
+
     parsed_duration = _parse_trip_duration_from_message(user_message)
     if parsed_duration and (trip_duration.get("days", 1) <= 1 or parsed_duration.get("days", 0) > 1):
         trip_duration = {
@@ -2217,6 +2518,7 @@ def get_trip_chat_result(
     ai_detected_action: str = "recommend"
     ai_excluded_id: Optional[int] = None
     ai_detected_duration: Optional[dict] = None
+    mentioned_place_match_id: Optional[int] = None
     if not replan and exclude_location_id is None:
         action_result = _detect_trip_action(
             user_message,
@@ -2245,6 +2547,49 @@ def get_trip_chat_result(
             }
 
         loc_name = action_result.get("target_location_name")
+
+        mentioned_place_name = action_result.get("mentioned_place_name")
+        mentioned_place_match_id = (
+            _find_location_id_by_name(mentioned_place_name, rows)
+            if mentioned_place_name
+            else None
+        )
+        if (
+            mentioned_place_name
+            and ai_action in ("recommend", "replan", "add_preference")
+            and not mentioned_place_match_id
+        ):
+            unknown_answer, inferred_region = _answer_for_unknown_place(
+                mentioned_place_name, user_message, api_key
+            )
+            fallback_ids: list[int] = []
+            fallback_schedule: list[dict] = []
+            if inferred_region:
+                reg_f2, prov_f2 = _detect_embedding_filters(inferred_region, rows)
+                if reg_f2 or prov_f2:
+                    items_per_day2 = _trip_items_per_day(user_message)
+                    max_locations2 = max(1, int(trip_duration.get("days", 1)) * items_per_day2)
+                    fallback_ids = _build_recommendation_ids(
+                        inferred_region, rows, max_locations2, intent=None
+                    )
+                    if fallback_ids:
+                        row_by_id2 = {int(r["id"]): r for r in rows}
+                        fallback_ids, _, fallback_schedule = _apply_trip_schedule(
+                            fallback_ids,
+                            rows,
+                            trip_duration.get("days", 1),
+                            reg_f2,
+                            prov_f2,
+                            row_by_id2,
+                        )
+            return _pack_trip_response(
+                answer=unknown_answer,
+                recommended_ids=fallback_ids,
+                schedule=fallback_schedule,
+                detected_action="recommend" if fallback_ids else "unsupported",
+                excluded_location_id=None,
+                detected_duration=ai_detected_duration,
+            )
 
         if ai_action == "unsupported":
             reason = action_result.get("unsupported_reason") or "장소 추천이나 일정 관련 질문을 해주세요!"
@@ -2334,7 +2679,7 @@ def get_trip_chat_result(
             or (
                 ai_detected_action == "add_preference"
                 and (
-                    detect_exclusion_tags(user_message)
+                    detect_exclusion_tags_with_history(user_message, recent_messages)
                     or message_requests_food_theme(user_message)
                     or message_requests_cafe_theme(user_message)
                     or detect_refine_target_day(user_message)
@@ -2344,6 +2689,10 @@ def get_trip_chat_result(
     )
     if should_refine:
         reg_rf, prov_rf = _detect_embedding_filters(user_message, rows)
+        if not reg_rf and not prov_rf and (current_location_ids or []):
+            # "차로 갈게"처럼 지역 언급 없이 부가 조건만 말한 refine — 기존 로드맵의 지역을 이어받아
+            # 남는 슬롯을 채울 때 엉뚱한 지역 후보가 섞여 들어가지 않게 한다.
+            reg_rf, prov_rf = _infer_region_from_existing_ids(current_location_ids, row_by_id_early)
         refined_ids, refine_answer = _refine_current_itinerary(
             user_message,
             current_location_ids,
@@ -2356,24 +2705,57 @@ def get_trip_chat_result(
             current_schedule=current_schedule,
             trip_days=days_early,
             items_per_day=items_per_day_early,
+            recent_messages=recent_messages,
         )
+        if (
+            mentioned_place_match_id
+            and mentioned_place_match_id in row_by_id_early
+            and mentioned_place_match_id not in (refined_ids or [])
+        ):
+            # 사용자가 특정 장소를 콕 집어 언급했는데 refine 로직이 놓쳤을 때 강제로 포함.
+            # (기존 장소는 앞에서부터 밀어내 정원(max_locations)을 넘기지 않는다 — 안 그러면
+            # 로드맵이 계속 불어나서 다음 refine 요청이 "빈자리 없음"으로 막혀버린다.)
+            refined_ids = (refined_ids or []) + [mentioned_place_match_id]
+            if len(refined_ids) > max_locations_early:
+                refined_ids = refined_ids[-max_locations_early:]
+            mentioned_row_name = row_by_id_early[mentioned_place_match_id].get("name", "")
+            if mentioned_row_name:
+                refine_answer = (
+                    f"{mentioned_row_name}을(를) 로드맵에 포함했어요. "
+                    + (refine_answer or "일정을 조정했어요.")
+                )
         changed = set(refined_ids or []) != set(current_location_ids or [])
         if refined_ids and (
             changed
             or not message_requests_cafe_theme(user_message)
             or _count_cafe_ids(refined_ids, row_by_id_early) > 0
         ):
-            _, _, trip_schedule_refined = _apply_trip_schedule(
+            refined_ids_final, _, trip_schedule_refined = _apply_trip_schedule(
                 refined_ids,
                 rows,
                 days_early,
                 reg_rf,
                 prov_rf,
                 row_by_id_early,
+                transport_mode=transport_mode,
             )
+            dropped_by_schedule = [
+                row_by_id_early[pid]
+                for pid in refined_ids
+                if pid not in refined_ids_final and pid in row_by_id_early
+            ]
+            if dropped_by_schedule:
+                # 숙박 1일 1곳/마지막날 제외, 음식점 1일 2곳 제한 등으로 일정 배치 단계에서
+                # 걸러진 장소는 답변에서도 이유와 함께 알린다.
+                names = "·".join(str(r.get("name") or "") for r in dropped_by_schedule[:2])
+                is_lodging_drop = any(
+                    "숙박" in (r.get("recommendedBusinesses") or []) for r in dropped_by_schedule
+                )
+                reason = "숙박은 하루 1곳까지만 가능해" if is_lodging_drop else "일정 배치 제한으로"
+                refine_answer = f"{refine_answer} 다만 {names}{_josa_eun_neun(names)} {reason} 다시 뺐어요."
             return _pack_trip_response(
                 answer=refine_answer,
-                recommended_ids=refined_ids,
+                recommended_ids=refined_ids_final,
                 schedule=trip_schedule_refined,
                 detected_action="refine",
                 excluded_location_id=None,
@@ -2421,9 +2803,19 @@ def get_trip_chat_result(
             intent["mood"] = inferred
     if message_requests_food_theme(user_message) and not intent.get("mood"):
         intent["mood"] = "food"
-    exclusion_tags = set(intent.get("exclusions") or detect_exclusion_tags(user_message))
+    exclusion_tags = set(
+        intent.get("exclusions") or detect_exclusion_tags_with_history(user_message, recent_messages)
+    )
     intent["exclusions"] = exclusion_tags
     reg_f, prov_f = _detect_embedding_filters(user_message, rows)
+    if not reg_f and not prov_f and mentioned_place_match_id and mentioned_place_match_id in row_by_id:
+        # 지역명은 안 말했지만 구체적 명소를 언급 → 그 명소의 지역으로 일정 범위를 좁힌다.
+        mentioned_row = row_by_id[mentioned_place_match_id]
+        prov_f = mentioned_row.get("province") or mentioned_row.get("region")
+        reg_f = mentioned_row.get("region")
+    if not reg_f and not prov_f and (current_location_ids or []):
+        # "다시 해줘"처럼 지역 언급이 아예 없는 replan 요청 — 기존 로드맵의 지역을 이어간다.
+        reg_f, prov_f = _infer_region_from_existing_ids(current_location_ids, row_by_id)
     baseline_ids = recommend_core.build_trip_baseline_ids(
         user_message,
         rows,
@@ -2436,6 +2828,8 @@ def get_trip_chat_result(
         _trip_row_matches_geo_filter,
         _build_recommendation_ids,
     )
+    if mentioned_place_match_id and mentioned_place_match_id not in baseline_ids:
+        baseline_ids = [mentioned_place_match_id] + baseline_ids
     baseline_ids = recommend_core.apply_trip_theme_priority(
         baseline_ids,
         row_by_id,
@@ -2507,6 +2901,15 @@ def get_trip_chat_result(
             row_by_id,
             exclusion_tags,
         )
+    if (
+        mentioned_place_match_id
+        and mentioned_place_match_id in row_by_id
+        and mentioned_place_match_id not in recommended_ids
+    ):
+        # DSPy/규칙 기반 선정이 사용자가 콕 집어 언급한 장소를 놓쳤을 때 강제로 포함.
+        recommended_ids = recommended_ids + [mentioned_place_match_id]
+        if len(recommended_ids) > max_locations:
+            recommended_ids = recommended_ids[-max_locations:]
     recommended_ids, schedule_context, trip_schedule = _apply_trip_schedule(
         recommended_ids,
         rows,
@@ -2514,6 +2917,7 @@ def get_trip_chat_result(
         reg_f,
         prov_f,
         row_by_id,
+        transport_mode=transport_mode,
     )
 
     if not api_key:
@@ -2534,8 +2938,24 @@ def get_trip_chat_result(
                 prov_f,
                 row_by_id,
             )
+        personalized_answer = (
+            _build_personalized_trip_answer(
+                recommended_ids,
+                schedule_out,
+                row_by_id,
+                intent,
+                user_message,
+                trip_duration,
+                reg_f,
+                prov_f,
+                dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows),
+                transport_mode=transport_mode,
+            )
+            if ai_detected_action in ("recommend", "replan", "replace")
+            else (dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows))
+        )
         return _pack_trip_response(
-            answer=dspy_trip_answer or "추천 장소를 조회했습니다.",
+            answer=personalized_answer,
             recommended_ids=recommended_ids,
             schedule=schedule_out,
             detected_action=ai_detected_action,
@@ -2561,8 +2981,25 @@ def get_trip_chat_result(
                 prov_f,
                 row_by_id,
             )
+        fallback_dspy_answer = dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows)
+        personalized_answer = (
+            _build_personalized_trip_answer(
+                recommended_ids,
+                replace_schedule,
+                row_by_id,
+                intent,
+                user_message,
+                trip_duration,
+                reg_f,
+                prov_f,
+                fallback_dspy_answer,
+                transport_mode=transport_mode,
+            )
+            if ai_detected_action in ("recommend", "replan", "replace")
+            else fallback_dspy_answer
+        )
         return _pack_trip_response(
-            answer=dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows),
+            answer=personalized_answer,
             recommended_ids=recommended_ids,
             schedule=replace_schedule,
             detected_action=ai_detected_action,
@@ -2667,6 +3104,14 @@ def get_trip_chat_result(
             baseline_ids,
             max_locations,
         )
+        if (
+            mentioned_place_match_id
+            and mentioned_place_match_id in row_by_id
+            and mentioned_place_match_id not in ids
+        ):
+            ids = ids + [mentioned_place_match_id]
+            if len(ids) > max_locations:
+                ids = ids[-max_locations:]
         ids, _, trip_schedule_llm = _apply_trip_schedule(
             ids,
             rows,
@@ -2674,6 +3119,7 @@ def get_trip_chat_result(
             reg_f,
             prov_f,
             row_by_id,
+            transport_mode=transport_mode,
         )
         trip_schedule_out = trip_schedule_llm
         if (
@@ -2692,7 +3138,23 @@ def get_trip_chat_result(
                 prov_f,
                 row_by_id,
             )
-        answer = llm_answer.strip() or _trip_answer_from_ids(ids, rows)
+        fallback_llm_answer = llm_answer.strip() or _trip_answer_from_ids(ids, rows)
+        answer = (
+            _build_personalized_trip_answer(
+                ids,
+                trip_schedule_out,
+                row_by_id,
+                intent,
+                user_message,
+                trip_duration,
+                reg_f,
+                prov_f,
+                fallback_llm_answer,
+                transport_mode=transport_mode,
+            )
+            if ai_detected_action in ("recommend", "replan", "replace")
+            else fallback_llm_answer
+        )
 
         return _pack_trip_response(
             answer=answer,

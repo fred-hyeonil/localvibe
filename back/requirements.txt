@@ -16,3 +16,5 @@ dspy-ai
 optuna
 Pillow
 python-multipart
+boto3
+pinecone-text

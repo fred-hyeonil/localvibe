@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Optional
 
 from .themes import (
     TripThemeProfile,
@@ -30,6 +31,7 @@ __all__ = [
     "TripThemeProfile",
     "apply_row_theme_score_boost",
     "detect_exclusion_tags",
+    "detect_exclusion_tags_with_history",
     "detect_refine_target_day",
     "message_wants_itinerary_refine",
     "detect_trip_theme_profile",
@@ -86,6 +88,24 @@ def detect_exclusion_tags(user_message: str) -> set[str]:
         for w in ("싫", "빼", "뺴", "제외", "안 가", "안갈", "가기 싫", "말고", "너무", "많")
     ):
         tags.add("temple")
+    return tags
+
+
+def detect_exclusion_tags_with_history(
+    user_message: str,
+    recent_messages: Optional[list[dict]] = None,
+) -> set[str]:
+    """현재 메시지뿐 아니라 이전 사용자 발화까지 훑어서 제외 조건을 누적한다.
+
+    예: 이전 턴에 "절 빼줘"라고 했으면, 다음 턴에서 다시 말하지 않아도
+    같은 로드맵을 다루는 동안은 제외 조건이 유지되어야 자연스럽다.
+    """
+    tags = set(detect_exclusion_tags(user_message))
+    for m in recent_messages or []:
+        if (m.get("role") if isinstance(m, dict) else getattr(m, "role", None)) != "user":
+            continue
+        text = m.get("text") if isinstance(m, dict) else getattr(m, "text", None)
+        tags |= detect_exclusion_tags(str(text or ""))
     return tags
 
 

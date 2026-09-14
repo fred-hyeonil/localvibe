@@ -1711,8 +1711,6 @@ def _build_id_index(rows: list[dict]) -> dict[int, dict]:
 
 def load_regions() -> list[dict]:
     now = time.time()
-    init_region_db()
-    db_rows = load_regions_from_db()
     signature = "|".join(
         [
             os.getenv("JN_API_ENDPOINT_URLS", ""),
@@ -1748,6 +1746,7 @@ def load_regions() -> list[dict]:
             os.getenv("LV_REGIONS_SKIP_EXTERNAL_FETCH", ""),
         ]
     )
+    # 캐시 유효하면 DB 조회 없이 즉시 반환
     cached = _runtime_cache.get("regions")
     loaded_at = float(_runtime_cache.get("loaded_at", 0.0))
     cached_signature = str(_runtime_cache.get("signature", ""))
@@ -1757,6 +1756,8 @@ def load_regions() -> list[dict]:
             _runtime_cache["id_index"] = _build_id_index(cached)  # type: ignore[arg-type]
         return cached  # type: ignore[return-value]
 
+    init_region_db()
+    db_rows = load_regions_from_db()
     fallback_regions = load_local_regions()
 
     if _regions_skip_external_fetch():
