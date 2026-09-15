@@ -152,6 +152,20 @@ _CITY_TOKEN_TO_PROVINCE: dict[str, str] = {
     "단양": "충청북도",
 }
 
+# DB address 컬럼에 전남·광주 통합 표기가 실제 시·군명 앞에 그대로 붙어 들어옴
+# (예: "전남광주통합특별시 순천시 북문길 40"). 이 접두어에 "광주"가 섞여 있어서
+# 시·군 텍스트 매칭을 하면 실제로는 순천·여수 등인 장소가 전부 "광주"로 오판된다.
+# 지역 판별용 텍스트 매칭 전에는 항상 이 접두어를 먼저 걷어내야 한다.
+_ADDRESS_NOISE_PREFIXES = ("전남광주통합특별시",)
+
+
+def _strip_address_noise(text: str) -> str:
+    out = str(text or "")
+    for noise in _ADDRESS_NOISE_PREFIXES:
+        out = out.replace(noise, "")
+    return out
+
+
 # --- 여행 의도 (관계·분위기·이동·기간): GPT + 키워드 폴백 ---
 
 _RELATION_KEYWORDS: dict[str, list[str]] = {
@@ -1459,8 +1473,10 @@ def _infer_region_from_existing_ids(
         province_label = str(row.get("province") or row.get("region") or "").strip()
         if province_label:
             province_counts[province_label] = province_counts.get(province_label, 0) + 1
-        blob = " ".join(
-            [str(row.get("name") or ""), str(row.get("address") or ""), str(row.get("summary") or "")[:120]]
+        blob = _strip_address_noise(
+            " ".join(
+                [str(row.get("name") or ""), str(row.get("address") or ""), str(row.get("summary") or "")[:120]]
+            )
         )
         for city in sorted(_CITY_TOKEN_TO_PROVINCE.keys(), key=len, reverse=True):
             if city in blob:
@@ -2103,16 +2119,18 @@ def _trip_row_matches_geo_filter(
         city = reg_f.strip()
         if not city:
             return True
-        rr = str(row.get("region") or "").strip()
+        rr = _strip_address_noise(row.get("region") or "").strip()
         if rr == city or rr.startswith(city):
             return True
-        blob = " ".join(
-            [
-                rr,
-                str(row.get("address") or ""),
-                str(row.get("name") or ""),
-                str(row.get("summary") or "")[:120],
-            ]
+        blob = _strip_address_noise(
+            " ".join(
+                [
+                    rr,
+                    str(row.get("address") or ""),
+                    str(row.get("name") or ""),
+                    str(row.get("summary") or "")[:120],
+                ]
+            )
         )
         if city in blob:
             return True
