@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import AuthUser, get_current_user, get_current_user_optional
 from app.modules.community.boards import is_valid_board, normalize_board_filter
-from app.modules.community.images import ImageError, delete_image, save_upload
+from app.modules.community.images import (
+    ImageError,
+    ImageStorageError,
+    delete_image,
+    save_upload,
+)
 from app.repositories import community_store, places_store
 from app.repositories.db import session_scope
 from app.schemas import (
@@ -254,7 +259,7 @@ def update_post(
         )
 
         if body.images is not None:
-            # 목록에서 빠진 사진은 디스크에서도 지운다.
+            # 목록에서 빠진 사진은 저장소(S3 또는 디스크)에서도 지운다.
             keep = {img.url for img in body.images}
             for url in community_store.list_image_urls(session, int(post.post_id)):
                 base = url.replace("_thumb.jpg", ".jpg")
@@ -294,6 +299,9 @@ async def upload_image(
         url, thumb_url = save_upload(data)
     except ImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ImageStorageError as exc:
+        # 파일은 정상인데 S3에 못 올린 경우 — 사용자 잘못이 아니므로 400이 아니다.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ImageUploadResponse(url=url, thumbUrl=thumb_url)
 
 
