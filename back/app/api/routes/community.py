@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import AuthUser, get_current_user, get_current_user_optional
+from app.modules.community import place_suggest
 from app.modules.community.boards import is_valid_board, normalize_board_filter
 from app.modules.community.images import (
     ImageError,
@@ -16,7 +17,7 @@ from app.modules.community.images import (
     delete_image,
     save_upload,
 )
-from app.repositories import community_store, places_store
+from app.repositories import community_store
 from app.repositories.db import session_scope
 from app.schemas import (
     CommentCreateRequest,
@@ -310,14 +311,14 @@ def suggest_places(
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=8, ge=1, le=20),
 ):
-    """글쓰기 장소 입력 자동완성 — 갤러리 장소에서 찾습니다."""
+    """글쓰기 장소 입력 자동완성 — 갤러리 장소에서 찾습니다.
+
+    글자를 칠 때마다 불리므로 DB에 묻지 않고 메모리에 올려둔 목록에서 찾습니다(place_suggest).
+    """
     if not q.strip():
         return PlaceSuggestionListResponse(places=[])
-    with session_scope() as session:
-        rows = places_store.search_places_by_name(session, q, limit=limit)
-        return PlaceSuggestionListResponse(
-            places=[PlaceSuggestion(**row) for row in rows]
-        )
+    rows = place_suggest.search(q, limit=limit)
+    return PlaceSuggestionListResponse(places=[PlaceSuggestion(**row) for row in rows])
 
 
 @router.get("/trending", response_model=TrendingPlaceListResponse)
