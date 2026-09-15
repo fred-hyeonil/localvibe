@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 16px 탭에서도 읽히도록 원본 오이에서 하이라이트·껍질 점·씨앗 음영을 뺀 단순화 버전 -->
+  <circle cx="16" cy="16" r="15.5" fill="#3a7322"/>
+  <circle cx="16" cy="16" r="12.6" fill="#b5d965"/>
+  <circle cx="16" cy="16" r="11.2" fill="#e5f2b4"/>
+  <g fill="#78a836">
+    <path id="seed" d="M16 13.6C13.9 12.3 13.3 9.6 14.2 8.2c.9-1.4 2.7-1.4 3.6 0 .9 1.4.3 4.1-1.8 5.4z"/>
+    <use href="#seed" transform="rotate(60 16 16)"/>
+    <use href="#seed" transform="rotate(120 16 16)"/>
+    <use href="#seed" transform="rotate(180 16 16)"/>
+    <use href="#seed" transform="rotate(240 16 16)"/>
+    <use href="#seed" transform="rotate(300 16 16)"/>
+  </g>
+</svg>
