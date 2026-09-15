@@ -995,6 +995,8 @@ function WritePage({ onCancel, onSubmit, editing = null, draftId = 'new' }) {
   photosRef.current = photos;
 
   // 장소 자동완성 — 입력이 멈추면 조회한다.
+  // 서버가 메모리에서 찾아 몇 ms면 답하므로 기다림을 짧게 둔다. 너무 줄이면
+  // 한글 조합 중인 글자(무ㄷ, 무드…)마다 요청이 나가 목록이 깜빡인다.
   useEffect(() => {
     const q = place.trim();
     if (!q || placeId) {
@@ -1010,7 +1012,7 @@ function WritePage({ onCancel, onSubmit, editing = null, draftId = 'new' }) {
         .catch(() => {
           if (!cancelled) setSuggestions([]);
         });
-    }, 250);
+    }, 150);
     return () => {
       cancelled = true;
       clearTimeout(timer);

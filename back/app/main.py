@@ -40,6 +40,9 @@ async def lifespan(_app: FastAPI):
 
     init_region_db()
     start_scheduler()
+    # 글쓰기 장소 자동완성용 목록을 뒤에서 미리 불러온다 (첫 사용자가 기다리지 않게)
+    from app.modules.community import place_suggest
+    place_suggest.warm_up()
     from app.modules.search.embedding import _get_model
     _get_model()
     yield
