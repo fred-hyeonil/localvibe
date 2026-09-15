@@ -32,6 +32,9 @@ BEACH_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/beachInfo/getBeachInfo
 FOOD_INFO_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/jnFoodInfo/getFoodInfoList"
 FOOD_IMG_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/jnFoodInfo/getFoodImgList"
 COASTAL_DEFAULT_ENDPOINT = "https://apis.data.go.kr/B554305/coastalVillage/getTourismResourceList"
+THEMEPARK_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/rest/jnThemeParkInfo/getThemeParkInfoList"
+ROOM_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/rest/jnRoomInfo/getRoomInfoList"
+FESTIVAL_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/rest/jnFestivalInfo/getFestivalInfoList"
 TENT_INFO_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/tentInfo/getTentInfoList"
 TENT_IMG_DEFAULT_ENDPOINT = "https://apis.data.go.kr/6460000/tentInfo/getTentInfoFile"
 KTO_DEFAULT_BASE_URL = "https://apis.data.go.kr/B551011/KorService2"
@@ -1561,6 +1564,203 @@ def _fetch_coastal_regions(jn_service_key: str, start_page: int, page_size: int)
     return rows
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    return _HTML_TAG_RE.sub("", text or "").strip()
+
+
+def _normalize_themepark_item(item: ET.Element, source_name: str) -> dict:
+    park_id = _first_text(item, ["themeParkId"])
+    name = _first_text(item, ["themeParkNm"])
+    if not name:
+        return {}
+    addr = _first_text(item, ["themeParkAddr"])
+    addr_detail = _first_text(item, ["themeParkAddrDetail"])
+    address = " ".join(p for p in [addr, addr_detail] if p).strip()
+    description = _strip_html(_first_text(item, ["themeParkSimpleinfo"])) or f"전남 {name} 테마파크 정보입니다."
+    image_url = _sanitize_image_url(_first_text(item, ["themeParkImgUrl", "imgUrl", "imageUrl"]))
+    region = _extract_region_from_address(address)
+    source_key = park_id or name
+    return {
+        "id": _stable_region_id(f"themepark:{source_key}"),
+        "sourceId": source_key,
+        "name": name,
+        "region": region,
+        "province": "전라남도",
+        "address": address,
+        "imageUrl": image_url,
+        "summary": description,
+        "recommendedBusinesses": ["테마파크", "가족 여행", "레저"],
+        "busyHours": ["주말 10:00-17:00"],
+        "targetCustomers": ["가족 단위 방문객", "어린이 동반 가족"],
+        "dataSource": source_name,
+    }
+
+
+def _fetch_themepark_regions(jn_service_key: str) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_THEMEPARK_ENABLE", "1").strip() == "0":
+        return []
+    endpoint = os.getenv("JN_THEMEPARK_ENDPOINT_URL", THEMEPARK_DEFAULT_ENDPOINT).strip() or THEMEPARK_DEFAULT_ENDPOINT
+    source_name = "전남광주통합특별시_테마파크 정보"
+    max_items = max(1, int(os.getenv("JN_THEMEPARK_MAX_ITEMS", "100")))
+    items = _fetch_xml_items(endpoint, jn_service_key, 1, 100)
+    if not items:
+        logger.warning("[THEMEPARK] empty list")
+        return []
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for item in items[:max_items]:
+        normalized = _normalize_themepark_item(item, source_name)
+        if not normalized:
+            continue
+        sid = str(normalized.get("sourceId", "")).strip()
+        if sid in seen:
+            continue
+        seen.add(sid)
+        rows.append(normalized)
+    logger.info("[THEMEPARK] normalized items=%d", len(rows))
+    return rows
+
+
+def _normalize_room_item(item: ET.Element, source_name: str) -> dict:
+    room_id = _first_text(item, ["roomId"])
+    name = _first_text(item, ["roomNm"])
+    if not name:
+        return {}
+    address = _first_text(item, ["roomAddr"])
+    zone = _first_text(item, ["roomZoneNm"])
+    description = _strip_html(_first_text(item, ["roomContents"])) or f"전남 {name} 숙박시설 정보입니다."
+    if len(description) > 300:
+        description = description[:300] + "..."
+    image_url = _sanitize_image_url(_first_text(item, ["roomImgUrl", "imgUrl", "imageUrl"]))
+    lon_str = _first_text(item, ["roomXpos"])
+    lat_str = _first_text(item, ["roomYpos"])
+    region = _extract_region_from_address(address)
+    if region == "정보없음" and zone:
+        region = zone
+    source_key = room_id or name
+    return {
+        "id": _stable_region_id(f"room:{source_key}"),
+        "sourceId": source_key,
+        "name": name,
+        "region": region,
+        "province": "전라남도",
+        "address": address,
+        "imageUrl": image_url,
+        "summary": description,
+        "recommendedBusinesses": ["숙박", "호텔/리조트", "체류형 관광"],
+        "busyHours": ["주말 15:00-18:00"],
+        "targetCustomers": ["여행객", "가족 단위 방문객"],
+        "dataSource": source_name,
+    }
+
+
+def _fetch_room_regions(jn_service_key: str) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_ROOM_ENABLE", "1").strip() == "0":
+        return []
+    endpoint = os.getenv("JN_ROOM_ENDPOINT_URL", ROOM_DEFAULT_ENDPOINT).strip() or ROOM_DEFAULT_ENDPOINT
+    source_name = "전남광주통합특별시_숙박 정보"
+    max_items = max(1, int(os.getenv("JN_ROOM_MAX_ITEMS", "200")))
+    rows: list[dict] = []
+    seen: set[str] = set()
+    page = 1
+    page_size = 100
+    while len(rows) < max_items:
+        items = _fetch_xml_items(endpoint, jn_service_key, page, page_size)
+        if not items:
+            break
+        for item in items:
+            normalized = _normalize_room_item(item, source_name)
+            if not normalized:
+                continue
+            sid = str(normalized.get("sourceId", "")).strip()
+            if sid in seen:
+                continue
+            seen.add(sid)
+            rows.append(normalized)
+            if len(rows) >= max_items:
+                break
+        if len(items) < page_size:
+            break
+        page += 1
+    logger.info("[ROOM] normalized items=%d", len(rows))
+    return rows
+
+
+def _normalize_festival_item(item: ET.Element, source_name: str) -> dict:
+    festival_id = _first_text(item, ["fastivalId", "festivalId"])
+    name = _first_text(item, ["festivalNm"])
+    if not name:
+        return {}
+    address = _first_text(item, ["festivalPlace"])
+    start_day = _first_text(item, ["festivalStartDay"])
+    end_day = _first_text(item, ["festivalEndDay"])
+    raw_contents = _strip_html(_first_text(item, ["festivalContents"]))
+    date_info = f"{start_day} ~ {end_day}" if start_day and end_day else ""
+    description = raw_contents or f"{name} 축제 정보입니다."
+    if date_info:
+        description = f"[{date_info}] {description}"
+    if len(description) > 300:
+        description = description[:300] + "..."
+    image_url = _sanitize_image_url(_first_text(item, ["festivalMainImgUrl", "imgUrl", "imageUrl"]))
+    region = _extract_region_from_address(address)
+    source_key = festival_id or name
+    return {
+        "id": _stable_region_id(f"festival:{source_key}"),
+        "sourceId": source_key,
+        "name": name,
+        "region": region,
+        "province": "전라남도",
+        "address": address,
+        "imageUrl": image_url,
+        "summary": description,
+        "recommendedBusinesses": ["축제/행사", "문화관광", "로컬 체험"],
+        "busyHours": [f"{start_day} ~ {end_day}"] if start_day and end_day else ["주말"],
+        "targetCustomers": ["관광객", "지역 주민", "가족 단위 방문객"],
+        "dataSource": source_name,
+    }
+
+
+def _fetch_festival_regions(jn_service_key: str) -> list[dict]:
+    if not jn_service_key:
+        return []
+    if os.getenv("JN_FESTIVAL_ENABLE", "1").strip() == "0":
+        return []
+    endpoint = os.getenv("JN_FESTIVAL_ENDPOINT_URL", FESTIVAL_DEFAULT_ENDPOINT).strip() or FESTIVAL_DEFAULT_ENDPOINT
+    source_name = "전남광주통합특별시_축제 정보"
+    max_items = max(1, int(os.getenv("JN_FESTIVAL_MAX_ITEMS", "150")))
+    rows: list[dict] = []
+    seen: set[str] = set()
+    page = 1
+    page_size = 100
+    while len(rows) < max_items:
+        items = _fetch_xml_items(endpoint, jn_service_key, page, page_size)
+        if not items:
+            break
+        for item in items:
+            normalized = _normalize_festival_item(item, source_name)
+            if not normalized:
+                continue
+            sid = str(normalized.get("sourceId", "")).strip()
+            if sid in seen:
+                continue
+            seen.add(sid)
+            rows.append(normalized)
+            if len(rows) >= max_items:
+                break
+        if len(items) < page_size:
+            break
+        page += 1
+    logger.info("[FESTIVAL] normalized items=%d", len(rows))
+    return rows
+
+
 def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[dict]:
     endpoint_urls = _resolve_endpoint_urls()
     start_page = int(os.getenv("JN_API_PAGE_NO", "1"))
@@ -1691,6 +1891,15 @@ def fetch_external_regions(jn_service_key: str, kto_service_key: str) -> list[di
 
         coastal_rows = _fetch_coastal_regions(jn_service_key, start_page, page_size)
         merged_rows.extend(coastal_rows)
+
+        themepark_rows = _fetch_themepark_regions(jn_service_key)
+        merged_rows.extend(themepark_rows)
+
+        room_rows = _fetch_room_regions(jn_service_key)
+        merged_rows.extend(room_rows)
+
+        festival_rows = _fetch_festival_regions(jn_service_key)
+        merged_rows.extend(festival_rows)
 
     kto_rows = _fetch_kto_regions(kto_service_key, timeout_seconds, retry_count, base_retry_wait, rate_limit_wait)
     merged_rows.extend(kto_rows)

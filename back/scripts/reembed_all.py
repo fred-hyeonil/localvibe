@@ -75,8 +75,8 @@ def reembed_all() -> None:
         list_all_places,
         list_crawled_texts_for_place,
     )
-    from app.services import embedding_service
-    from app.services.embedding_service import build_place_embed_text
+    from app.modules.search import embedding as embedding_service
+    from app.modules.search.embedding import build_place_embed_text
 
     bm25_path = os.getenv("BM25_MODEL_PATH", "bm25_encoder.json")
     if not os.path.exists(bm25_path):
