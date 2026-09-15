@@ -326,23 +326,26 @@ def _matches_geo_filter(row: dict, reg_f: Optional[str], prov_f: Optional[str]) 
     if prov_f and str(row.get("province") or "").strip() != prov_f:
         return False
     if reg_f:
+        from app.modules.chat.service import _CITY_TOKEN_TO_PROVINCE, _strip_address_noise
+
         city = reg_f.strip()
         if not city:
             return True
-        rr = str(row.get("region") or "").strip()
+        rr = _strip_address_noise(row.get("region") or "").strip()
         if rr == city or rr.startswith(city):
             return True
-        blob = " ".join(
-            [
-                rr,
-                str(row.get("address") or ""),
-                str(row.get("name") or ""),
-                str(row.get("summary") or "")[:120],
-            ]
+        blob = _strip_address_noise(
+            " ".join(
+                [
+                    rr,
+                    str(row.get("address") or ""),
+                    str(row.get("name") or ""),
+                    str(row.get("summary") or "")[:120],
+                ]
+            )
         )
         if city in blob:
             return True
-        from app.modules.chat.service import _CITY_TOKEN_TO_PROVINCE
 
         for other in _CITY_TOKEN_TO_PROVINCE:
             if other == city or len(other) < 2:
