@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import random
 from datetime import datetime, timezone
 from typing import Any
 
@@ -96,6 +97,15 @@ _LOCALITY_TOKENS: tuple[str, ...] = (
     "이태원",
 )
 
+# "[지역] 근교" 검색 시 함께 hint로 추가할 인접 지역
+_NEARBY_REGIONS: dict[str, list[str]] = {
+    "광주": ["나주", "담양", "화순", "장성", "함평", "영광", "무안"],
+    "여수": ["순천", "광양", "고흥"],
+    "순천": ["여수", "광양", "구례", "고흥"],
+    "목포": ["무안", "영암", "신안", "해남"],
+    "전주": ["완주", "익산", "김제", "군산"],
+}
+
 
 def _use_mysql() -> bool:
     return mysql_url_configured()
@@ -144,7 +154,9 @@ def _calc_final_score(similarity: float, trend: float, recency: float, location:
 
 
 def _locality_hints_from_query(query: str) -> list[str]:
-    """질문 안에 등장하는 알려진 지명 토큰(긴 것 우선, 짧은 것은 상위 토큰에 포함되면 제외)."""
+    """질문 안에 등장하는 알려진 지명 토큰(긴 것 우선, 짧은 것은 상위 토큰에 포함되면 제외).
+    '근교' 키워드가 있으면 해당 지역의 인접 지역도 hint에 추가한다.
+    """
     q = str(query or "").strip()
     if not q:
         return []
@@ -162,6 +174,17 @@ def _locality_hints_from_query(query: str) -> list[str]:
         if any(u in t and u != t for u in chosen):
             continue
         chosen.append(t)
+
+    # "근교" / "주변" / "당일치기" 키워드가 있으면 인접 지역 추가
+    if any(kw in q for kw in ("근교", "주변", "당일치기")):
+        extra: set[str] = set()
+        for base in list(chosen):
+            for nearby in _NEARBY_REGIONS.get(base, []):
+                extra.add(nearby)
+        for tok in extra:
+            if tok not in chosen:
+                chosen.append(tok)
+
     return chosen
 
 
@@ -179,6 +202,41 @@ def _place_matches_locality_hints(place: Place, hints: list[str]) -> bool:
     return any(h.lower() in blob for h in hints)
 
 
+def _name_match_boosts(query: str) -> dict[int, float]:
+    """쿼리와 이름이 일치하는 place_id → boost 값 매핑.
+
+    공백을 제거한 정규화 쿼리로도 검색해 '광주 극장' → '광주극장' 케이스를 잡는다.
+    완전 일치 2.0 / 시작 일치 1.5 / 부분 포함 0.8
+    """
+    q = str(query or "").strip()
+    if not q:
+        return {}
+    q_norm = q.replace(" ", "").lower()
+    q_lower = q.lower()
+
+    boosts: dict[int, float] = {}
+    with session_scope() as session:
+        rows = places_store.search_places_by_name(session, q, limit=30)
+        if q_norm != q_lower:
+            norm_rows = places_store.search_places_by_name(session, q_norm, limit=30)
+            seen = {r["id"] for r in rows}
+            rows += [r for r in norm_rows if r["id"] not in seen]
+
+    for row in rows:
+        pid = row["id"]
+        name_norm = row["name"].replace(" ", "").lower()
+        name_lower = row["name"].lower()
+        if name_norm == q_norm or name_lower == q_lower:
+            boost = 2.0
+        elif name_norm.startswith(q_norm) or name_lower.startswith(q_lower):
+            boost = 1.5
+        else:
+            boost = 0.8
+        if pid not in boosts or boosts[pid] < boost:
+            boosts[pid] = boost
+    return boosts
+
+
 def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]]:
     """
     Pinecone Top-K(20) → 점수 재계산 후 정렬된 place 요약 dict 리스트.
@@ -193,20 +251,50 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
     theme_profile = detect_trip_theme_profile(query)
 
     merged: dict[int, float] = {pid: float(sim) for pid, sim in scored}
+
+    # 이름 일치 장소 — Pinecone 미포함이어도 후보에 올린다
+    name_boosts = _name_match_boosts(query)
+    floor_sim = float(os.getenv("GALLERY_LOCALITY_HINT_FLOOR_SIM", "0.48"))
+    for pid in name_boosts:
+        if pid not in merged:
+            merged[pid] = floor_sim
+
     if hints and not region_filter:
+        _q = str(query or "")
+        is_nearby_query = any(kw in _q for kw in ("근교", "주변", "당일치기"))
         with session_scope() as session:
-            extra_ids = places_store.find_place_ids_for_locality_hints(session, hints, limit=120)
-        floor_sim = float(os.getenv("GALLERY_LOCALITY_HINT_FLOOR_SIM", "0.48"))
+            if is_nearby_query and len(hints) > 1:
+                # 근교 쿼리: 각 지역에서 고르게 샘플링해 한 지역이 독점하지 않도록
+                per_hint = max(15, 120 // len(hints))
+                extra_ids: list[int] = []
+                seen: set[int] = set()
+                for hint in hints:
+                    ids = places_store.find_place_ids_for_locality_hints(session, [hint], limit=per_hint)
+                    for pid in ids:
+                        if pid not in seen:
+                            extra_ids.append(pid)
+                            seen.add(pid)
+            else:
+                extra_ids = places_store.find_place_ids_for_locality_hints(session, hints, limit=120)
         for pid in extra_ids:
             merged[pid] = max(merged.get(pid, 0.0), floor_sim)
 
     ranked = sorted(merged.items(), key=lambda x: x[1], reverse=True)
-    scan_cap = min(len(ranked), max(top_k * 4, 48))
+    base_cap = max(top_k * 4, 48)
+    if any(kw in str(query or "") for kw in ("근교", "주변", "당일치기")) and len(hints) > 1:
+        base_cap = max(base_cap, len(hints) * 20)
+    scan_cap = min(len(ranked), base_cap)
 
     locality_boost = float(os.getenv("GALLERY_LOCALITY_HINT_SCORE_BOOST", "0.42"))
 
     candidate_ids = [pid for pid, _ in ranked[:scan_cap]]
     sim_map: dict[int, float] = dict(ranked[:scan_cap])
+
+    # 이름 일치 장소는 scan_cap에 잘려도 반드시 후보에 포함
+    for pid in name_boosts:
+        if pid not in sim_map:
+            sim_map[pid] = merged.get(pid, floor_sim)
+            candidate_ids.append(pid)
 
     require_image = os.getenv("GALLERY_REQUIRE_REAL_IMAGE", "1").strip() != "0"
 
@@ -224,7 +312,9 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
             .order_by(CrawledImage.place_id, CrawledImage.image_id.asc())
         ).all()
         image_map: dict[int, str] = {}
+        image_count: dict[int, int] = {}
         for pid, url in img_rows:
+            image_count[pid] = image_count.get(pid, 0) + 1
             if pid not in image_map and url:
                 image_map[pid] = str(url).strip()
 
@@ -241,6 +331,13 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
             loc = _calc_location_score(p.region, p.province, region_filter)
             sim_n = max(0.0, min(1.0, (sim + 1.0) / 2.0)) if sim <= 1.0 else max(0.0, min(1.0, sim))
             final = _calc_final_score(sim_n, trend, rec, loc)
+            # 이미지 수 기반 품질 보너스 (최대 +0.06) + 다양성을 위한 소폭 랜덤 노이즈
+            img_cnt = image_count.get(place_id, 0)
+            final += min(img_cnt / 50.0, 0.06)
+            final += random.uniform(0.0, 0.02)
+            # 이름 일치 장소를 상위로 고정 (완전일치 +2.0, 시작일치 +1.5, 부분포함 +0.8)
+            if place_id in name_boosts:
+                final += name_boosts[place_id]
             if hints and not region_filter and _place_matches_locality_hints(p, hints):
                 final += locality_boost
             if theme_profile.active:
@@ -258,7 +355,7 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
                         final += float(os.getenv("GALLERY_THEME_SCORE_BOOST", "0.34"))
                         break
                 if theme_deprioritize_row(row_stub, theme_profile):
-                    final -= float(os.getenv("GALLERY_THEME_DEPRIORITIZE_PENALTY", "0.24"))
+                    final -= float(os.getenv("GALLERY_THEME_DEPRIORITIZE_PENALTY", "0.55"))
             out.append(
                 {
                     "place_id": place_id,
@@ -272,5 +369,16 @@ def search_gallery(query: str, region_filter: str | None) -> list[dict[str, Any]
                     "pinecone_similarity": float(sim),
                 }
             )
+        # 동점 구간 내 다양성 확보: 0.01 이내 점수는 랜덤 순서로
         out.sort(key=lambda x: x["score"], reverse=True)
+        i = 0
+        while i < len(out):
+            j = i + 1
+            while j < len(out) and abs(out[j]["score"] - out[i]["score"]) < 0.01:
+                j += 1
+            if j - i > 1:
+                band = out[i:j]
+                random.shuffle(band)
+                out[i:j] = band
+            i = j
         return out

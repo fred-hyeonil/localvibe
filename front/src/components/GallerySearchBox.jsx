@@ -7,7 +7,7 @@ import { useState } from 'react';
 export default function GallerySearchBox({
   onSearch,
   busy = false,
-  placeholder = '장소나 분위기를 검색해보세요',
+  placeholder = '랜덤 추천 · 검색으로 취향에 맞는 장소를 찾아보세요',
 }) {
   const [q, setQ] = useState('');
 
