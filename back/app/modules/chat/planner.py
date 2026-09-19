@@ -388,27 +388,41 @@ def optimize_route_for_day(place_ids: list[int], rows: list[dict]) -> list[int]:
 
 
 def _matches_geo_filter(row: dict, reg_f: Optional[str], prov_f: Optional[str]) -> bool:
-    if prov_f and str(row.get("province") or "").strip() != prov_f:
-        return False
-    if reg_f:
-        from app.modules.chat.service import _CITY_TOKEN_TO_PROVINCE, _strip_address_noise
+    if not reg_f and not prov_f:
+        return True
 
+    from app.modules.chat.service import (
+        _ADDRESS_NOISE_PREFIXES,
+        _CITY_TOKEN_TO_PROVINCE,
+        _strip_address_noise,
+    )
+
+    raw_province = str(row.get("province") or "").strip()
+    # "전남광주통합특별시"처럼 province 컬럼 자체가 전남+광주 병합 라벨로 오염된 행은
+    # prov_f("광주광역시" 등)와 절대 문자열이 같을 수 없다. 이 경우 province 컬럼으로
+    # 바로 탈락시키지 않고, 아래 주소·이름 텍스트 기반 판별로 넘긴다.
+    province_is_noisy = any(noise in raw_province for noise in _ADDRESS_NOISE_PREFIXES)
+    if prov_f and not province_is_noisy and raw_province != prov_f:
+        return False
+
+    rr = _strip_address_noise(row.get("region") or "").strip()
+    blob = _strip_address_noise(
+        " ".join(
+            [
+                rr,
+                str(row.get("address") or ""),
+                str(row.get("name") or ""),
+                str(row.get("summary") or "")[:120],
+            ]
+        )
+    )
+
+    if reg_f:
         city = reg_f.strip()
         if not city:
             return True
-        rr = _strip_address_noise(row.get("region") or "").strip()
         if rr == city or rr.startswith(city):
             return True
-        blob = _strip_address_noise(
-            " ".join(
-                [
-                    rr,
-                    str(row.get("address") or ""),
-                    str(row.get("name") or ""),
-                    str(row.get("summary") or "")[:120],
-                ]
-            )
-        )
         if city in blob:
             return True
 
@@ -418,6 +432,15 @@ def _matches_geo_filter(row: dict, reg_f: Optional[str], prov_f: Optional[str]) 
             if other in blob and city not in blob:
                 return False
         return False
+
+    if prov_f and province_is_noisy:
+        # 시·군(reg_f) 없이 도(道) 단위(prov_f)만 있을 때, 오염된 province 대신 주소·이름
+        # 텍스트에서 그 도에 속한 도시 토큰을 찾아 대신 판별한다.
+        for city, province in _CITY_TOKEN_TO_PROVINCE.items():
+            if province == prov_f and city in blob:
+                return True
+        return False
+
     return True
 
 

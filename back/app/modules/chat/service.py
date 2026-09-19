@@ -2295,26 +2295,35 @@ def _trip_row_matches_geo_filter(
     row: dict, reg_f: Optional[str], prov_f: Optional[str]
 ) -> bool:
     """Pinecone/토큰으로 고른 행정구역 필터와 행이 일치하는지."""
-    if prov_f:
-        if str(row.get("province") or "").strip() != prov_f:
-            return False
+    if not reg_f and not prov_f:
+        return True
+
+    raw_province = str(row.get("province") or "").strip()
+    # "전남광주통합특별시"처럼 province 컬럼 자체가 전남+광주 병합 라벨로 오염된 행은
+    # prov_f("광주광역시" 등)와 절대 문자열이 같을 수 없다. province 컬럼으로 바로
+    # 탈락시키지 않고 아래 주소·이름 텍스트 기반 판별로 넘긴다.
+    province_is_noisy = any(noise in raw_province for noise in _ADDRESS_NOISE_PREFIXES)
+    if prov_f and not province_is_noisy and raw_province != prov_f:
+        return False
+
+    rr = _strip_address_noise(row.get("region") or "").strip()
+    blob = _strip_address_noise(
+        " ".join(
+            [
+                rr,
+                str(row.get("address") or ""),
+                str(row.get("name") or ""),
+                str(row.get("summary") or "")[:120],
+            ]
+        )
+    )
+
     if reg_f:
         city = reg_f.strip()
         if not city:
             return True
-        rr = _strip_address_noise(row.get("region") or "").strip()
         if rr == city or rr.startswith(city):
             return True
-        blob = _strip_address_noise(
-            " ".join(
-                [
-                    rr,
-                    str(row.get("address") or ""),
-                    str(row.get("name") or ""),
-                    str(row.get("summary") or "")[:120],
-                ]
-            )
-        )
         if city in blob:
             return True
         # 다른 시·군명이 이름/주소에 더 뚜렷하면 제외 (여수 요청에 순천·목포 등)
@@ -2324,6 +2333,15 @@ def _trip_row_matches_geo_filter(
             if other in blob and city not in blob:
                 return False
         return False
+
+    if prov_f and province_is_noisy:
+        # 시·군(reg_f) 없이 도(道) 단위(prov_f)만 있을 때, 오염된 province 대신
+        # 주소·이름 텍스트에서 그 도에 속한 도시 토큰을 찾아 대신 판별한다.
+        for city, province in _CITY_TOKEN_TO_PROVINCE.items():
+            if province == prov_f and city in blob:
+                return True
+        return False
+
     return True
 
 
@@ -3142,9 +3160,12 @@ def get_trip_chat_result(
     reg_f, prov_f = _detect_embedding_filters(user_message, rows)
     if not reg_f and not prov_f and mentioned_place_match_id and mentioned_place_match_id in row_by_id:
         # 지역명은 안 말했지만 구체적 명소를 언급 → 그 명소의 지역으로 일정 범위를 좁힌다.
-        mentioned_row = row_by_id[mentioned_place_match_id]
-        prov_f = mentioned_row.get("province") or mentioned_row.get("region")
-        reg_f = mentioned_row.get("region")
+        # province/region 컬럼을 그대로 쓰면 "전남광주통합특별시"처럼 오염된 값이 그대로
+        # reg_f/prov_f가 되어, 그 뒤 geo 필터가 이 값과 매칭되는 행을 하나도 못 찾고
+        # (오염 라벨은 텍스트 매칭 전에 항상 제거되므로) 방금 찾은 그 장소마저 걸러내
+        # 버린다. _infer_region_from_existing_ids와 동일하게 주소·이름 텍스트에서
+        # 도시 토큰을 뽑아내는 방식으로 일관되게 처리한다.
+        reg_f, prov_f = _infer_region_from_existing_ids([mentioned_place_match_id], row_by_id)
     if not reg_f and not prov_f and (current_location_ids or []):
         # "다시 해줘"처럼 지역 언급이 아예 없는 replan 요청 — 기존 로드맵의 지역을 이어간다.
         reg_f, prov_f = _infer_region_from_existing_ids(current_location_ids, row_by_id)
