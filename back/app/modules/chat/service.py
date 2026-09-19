@@ -1313,6 +1313,7 @@ def _full_schedule_for_replace(
     reg_f: Optional[str],
     prov_f: Optional[str],
     row_by_id: dict[int, dict],
+    transport_mode: Optional[str] = None,
 ) -> list[dict]:
     merged: list[int] = []
     for cid in current_location_ids or []:
@@ -1321,7 +1322,7 @@ def _full_schedule_for_replace(
         else:
             merged.append(int(cid))
     _, _, sched = _apply_trip_schedule(
-        merged, rows, days, reg_f, prov_f, row_by_id
+        merged, rows, days, reg_f, prov_f, row_by_id, transport_mode=transport_mode
     )
     return recommend_core.schedule_entries_for_api(sched) or []
 
@@ -2144,6 +2145,26 @@ def _trip_row_matches_geo_filter(
     return True
 
 
+def _explain_schedule_drop_reason(
+    row: dict, reg_f: Optional[str], prov_f: Optional[str]
+) -> str:
+    """일정 배치 단계(build_trip_schedule)에서 장소가 빠진 실제 이유를 판별.
+
+    _refine_current_itinerary가 골라둔 id라도, 그 뒤 build_trip_schedule이
+    지역 필터·숙박 1일1곳·음식점 1일2곳 규칙을 다시 적용하면서 빠질 수 있다.
+    이 셋 중 무엇 때문인지 맞혀서 안내해야 "관광지인데 왜 숙박 제한이라 빠졌다는거야"
+    같은 엉뚱한 설명을 피할 수 있다.
+    """
+    if not _trip_row_matches_geo_filter(row, reg_f, prov_f):
+        return "지역 조건과 맞지 않아"
+    rb = row.get("recommendedBusinesses") or []
+    if "숙박" in rb:
+        return "숙박은 하루 1곳까지만 가능해"
+    if "음식점" in rb:
+        return "음식점은 하루 2곳까지만 가능해"
+    return "일정 배치 제한으로"
+
+
 def _parse_trip_duration_from_message(user_message: str) -> Optional[dict]:
     """메시지에서 N박 M일·N일 패턴 추출 (AI 감지 실패 시 폴백)."""
     text = str(user_message or "")
@@ -2599,6 +2620,7 @@ def get_trip_chat_result(
                             reg_f2,
                             prov_f2,
                             row_by_id2,
+                            transport_mode=transport_mode,
                         )
             return _pack_trip_response(
                 answer=unknown_answer,
@@ -2763,14 +2785,17 @@ def get_trip_chat_result(
                 if pid not in refined_ids_final and pid in row_by_id_early
             ]
             if dropped_by_schedule:
-                # 숙박 1일 1곳/마지막날 제외, 음식점 1일 2곳 제한 등으로 일정 배치 단계에서
-                # 걸러진 장소는 답변에서도 이유와 함께 알린다.
-                names = "·".join(str(r.get("name") or "") for r in dropped_by_schedule[:2])
-                is_lodging_drop = any(
-                    "숙박" in (r.get("recommendedBusinesses") or []) for r in dropped_by_schedule
-                )
-                reason = "숙박은 하루 1곳까지만 가능해" if is_lodging_drop else "일정 배치 제한으로"
-                refine_answer = f"{refine_answer} 다만 {names}{_josa_eun_neun(names)} {reason} 다시 뺐어요."
+                # 지역 필터·숙박 1일1곳·음식점 1일2곳 중 실제로 어느 규칙 때문에 빠졌는지
+                # 장소별로 판별해서, 관광지가 "숙박 제한" 때문이라는 식의 엉뚱한 설명을 막는다.
+                by_reason: dict[str, list[str]] = {}
+                for r in dropped_by_schedule:
+                    reason = _explain_schedule_drop_reason(r, reg_rf, prov_rf)
+                    by_reason.setdefault(reason, []).append(str(r.get("name") or ""))
+                for reason, names_list in by_reason.items():
+                    names = "·".join(names_list[:2])
+                    if len(names_list) > 2:
+                        names += f" 외 {len(names_list) - 2}곳"
+                    refine_answer = f"{refine_answer} 다만 {names}{_josa_eun_neun(names)} {reason} 다시 뺐어요."
             return _pack_trip_response(
                 answer=refine_answer,
                 recommended_ids=refined_ids_final,
@@ -2955,6 +2980,7 @@ def get_trip_chat_result(
                 reg_f,
                 prov_f,
                 row_by_id,
+                transport_mode=transport_mode,
             )
         personalized_answer = (
             _build_personalized_trip_answer(
@@ -2998,6 +3024,7 @@ def get_trip_chat_result(
                 reg_f,
                 prov_f,
                 row_by_id,
+                transport_mode=transport_mode,
             )
         fallback_dspy_answer = dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows)
         personalized_answer = (
@@ -3155,6 +3182,7 @@ def get_trip_chat_result(
                 reg_f,
                 prov_f,
                 row_by_id,
+                transport_mode=transport_mode,
             )
         fallback_llm_answer = llm_answer.strip() or _trip_answer_from_ids(ids, rows)
         answer = (
