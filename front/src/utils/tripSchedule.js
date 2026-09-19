@@ -7,6 +7,62 @@ export const PERIOD_LABELS = ['오전', '오후'];
 const MORNING_SLOTS = new Set(['morning', 'lunch', 'cafe_am']);
 const AFTERNOON_SLOTS = new Set(['afternoon', 'dinner', 'night']);
 
+// 백엔드 planner.py의 _TRAVEL_SPEED_KMH_BY_MODE / _DEFAULT_TRANSPORT_MODE와 맞춘 값.
+// 드래그로 순서를 바꾸면 서버 호출 없이 프론트에서 바로 이동시간을 다시 계산해야 해서 복제해둔다.
+const TRAVEL_SPEED_KMH_BY_MODE = { walk: 4.5, public: 22.0, car: 32.0 };
+const DEFAULT_TRAVEL_MODE = 'car';
+
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = deg => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** 이 날 기존 카드들이 쓰던 이동수단(가장 많이 쓰인 것) — 없으면 기본값(자동차) */
+function dominantTravelMode(items) {
+  const counts = {};
+  for (const it of items) {
+    if (it.tripTravelMode) counts[it.tripTravelMode] = (counts[it.tripTravelMode] || 0) + 1;
+  }
+  const entries = Object.entries(counts);
+  if (!entries.length) return DEFAULT_TRAVEL_MODE;
+  entries.sort((a, b) => b[1] - a[1]);
+  return entries[0][0];
+}
+
+/** 드래그로 순서/일차를 바꾼 뒤, 그 날 안에서 이동시간을 좌표 기반으로 다시 계산한다.
+ * 안 그러면 옮기기 전 이웃 기준 이동시간이 그대로 남거나(틀린 값) 사라진다. */
+function recomputeTravelTimesForDay(items) {
+  const mode = dominantTravelMode(items);
+  const speedKmh = TRAVEL_SPEED_KMH_BY_MODE[mode] ?? TRAVEL_SPEED_KMH_BY_MODE[DEFAULT_TRAVEL_MODE];
+  let prevCoord = null;
+  return items.map(loc => {
+    // tripLat/tripLng는 채팅 응답 직후에만 붙는 값이라, 새로고침으로 복원됐거나
+    // 갤러리에서 직접 추가한 장소는 이게 없고 기본 latitude/longitude만 있다.
+    const lat = Number(loc.tripLat ?? loc.latitude);
+    const lng = Number(loc.tripLng ?? loc.longitude);
+    const hasCoord = Number.isFinite(lat) && Number.isFinite(lng);
+    let travelMinutes = null;
+    if (prevCoord && hasCoord) {
+      const distKm = haversineDistanceKm(prevCoord[0], prevCoord[1], lat, lng);
+      travelMinutes = Math.max(1, Math.round((distKm / speedKmh) * 60));
+    }
+    if (hasCoord) {
+      prevCoord = [lat, lng];
+    }
+    return {
+      ...loc,
+      tripTravelMinutes: travelMinutes,
+      tripTravelMode: travelMinutes !== null ? mode : null,
+    };
+  });
+}
+
 export function periodForSlotIndex(indexInDay) {
   return PERIOD_LABELS[indexInDay % PERIOD_LABELS.length];
 }
@@ -190,9 +246,9 @@ function finalizeItineraryOrder(locations, days) {
   }
 
   const ordered = [];
-  for (let day = 1; day <= dayCount; day += 1) {
-    const bucket = buckets.get(day) || [];
-    bucket.forEach((loc, slotIndex) => {
+  const appendDay = (day, bucket) => {
+    const withTravel = recomputeTravelTimesForDay(bucket);
+    withTravel.forEach((loc, slotIndex) => {
       const hint = inferSoftPeriodHint(loc);
       ordered.push({
         ...loc,
@@ -203,21 +259,15 @@ function finalizeItineraryOrder(locations, days) {
         scheduleAdjusted: true,
       });
     });
+  };
+
+  for (let day = 1; day <= dayCount; day += 1) {
+    appendDay(day, buckets.get(day) || []);
   }
 
   for (const [day, bucket] of buckets.entries()) {
     if (day > dayCount) {
-      bucket.forEach((loc, slotIndex) => {
-        const hint = inferSoftPeriodHint(loc);
-        ordered.push({
-          ...loc,
-          tripDay: day,
-          tripTime: hint || '',
-          tripSlot: hint === '오전' ? 'morning' : hint === '오후' ? 'afternoon' : '',
-          tripOrder: slotIndex + 1,
-          scheduleAdjusted: true,
-        });
-      });
+      appendDay(day, bucket);
     }
   }
 

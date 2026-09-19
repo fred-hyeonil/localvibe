@@ -24,7 +24,9 @@ _TRAVEL_SPEED_KMH_BY_MODE: dict[str, float] = {
     "public": 22.0,
     "car": 32.0,
 }
-_DEFAULT_TRAVEL_SPEED_KMH = 18.0  # 이동수단을 안 밝혔을 때 쓰는 도보+대중교통 혼합 가정치
+# 광주·전남은 대중교통망이 약해 실제로는 대부분 차로 이동한다. 이동수단을 안 밝히면
+# 자차로 간주하고, 사용자가 대중교통·도보라고 말하면 그때 계산을 바꾼다.
+_DEFAULT_TRANSPORT_MODE = "car"
 
 # DB에 좌표(latitude/longitude)가 비어있는 장소가 대부분이라, 주소로 즉석 지오코딩해서
 # 디스크 캐시에 재사용한다. 매 요청마다 같은 인기 장소를 다시 지오코딩하지 않기 위함.
@@ -173,7 +175,8 @@ def assign_time_slots(
         return []
     days = max(1, int(days))
     row_by_id = {int(row["id"]): row for row in rows}
-    speed_kmh = _TRAVEL_SPEED_KMH_BY_MODE.get(str(transport_mode or ""), _DEFAULT_TRAVEL_SPEED_KMH)
+    effective_mode = str(transport_mode or _DEFAULT_TRANSPORT_MODE)
+    speed_kmh = _TRAVEL_SPEED_KMH_BY_MODE.get(effective_mode, _TRAVEL_SPEED_KMH_BY_MODE[_DEFAULT_TRANSPORT_MODE])
 
     day_buckets: list[list[int]] = [[] for _ in range(days)]
     for idx, pid in enumerate(place_ids):
@@ -217,11 +220,73 @@ def assign_time_slots(
                     "latitude": lat,
                     "longitude": lng,
                     "travel_minutes": travel_minutes,
-                    "travel_mode": transport_mode if travel_minutes is not None else None,
+                    "travel_mode": effective_mode if travel_minutes is not None else None,
                     "meal": meal,
                 }
             )
     return schedule
+
+
+def recompute_schedule_travel_only(
+    schedule_entries: list[dict],
+    rows: list[dict],
+    transport_mode: Optional[str] = None,
+) -> list[dict]:
+    """일차·순서·장소는 기존 일정 그대로 두고 이동수단만 바꿔 이동시간을 다시 계산한다.
+
+    '대중교통으로 바꿔줘'처럼 이동수단만 바꿔달라는 요청에 assign_time_slots를 다시
+    돌리면 day_buckets 재배치·TSP 재정렬로 일정 자체가 딴 걸로 바뀌어버리므로, 여기서는
+    기존 schedule_entries의 day/순서를 그대로 보존한 채 구간별 이동시간만 다시 잰다.
+    """
+    if not schedule_entries:
+        return []
+    row_by_id = {int(row["id"]): row for row in rows}
+    effective_mode = str(transport_mode or _DEFAULT_TRANSPORT_MODE)
+    speed_kmh = _TRAVEL_SPEED_KMH_BY_MODE.get(effective_mode, _TRAVEL_SPEED_KMH_BY_MODE[_DEFAULT_TRANSPORT_MODE])
+
+    by_day: dict[int, list[dict]] = {}
+    for entry in schedule_entries:
+        day = int(entry.get("day") or 1)
+        by_day.setdefault(day, []).append(entry)
+
+    result: list[dict] = []
+    for day in sorted(by_day):
+        prev_coord: Optional[tuple[float, float]] = None
+        for entry in by_day[day]:
+            raw_pid = entry.get("placeId")
+            if raw_pid is None:
+                raw_pid = entry.get("place_id")
+            pid = int(raw_pid or 0)
+            row = row_by_id.get(pid, {})
+            lat, lng = entry.get("latitude"), entry.get("longitude")
+            if lat is not None and lng is not None:
+                coord: Optional[tuple[float, float]] = (float(lat), float(lng))
+            else:
+                coord = _resolve_coord(row)
+                if coord:
+                    lat, lng = coord
+            travel_minutes = None
+            if prev_coord and coord:
+                dist_km = _haversine_distance(*prev_coord, *coord)
+                travel_minutes = max(1, round(dist_km / speed_kmh * 60))
+            prev_coord = coord or prev_coord
+            result.append(
+                {
+                    "day": day,
+                    "slot": entry.get("slot", ""),
+                    "time": entry.get("time", ""),
+                    "place_id": pid,
+                    "place_name": entry.get("placeName") or entry.get("place_name") or row.get("name", ""),
+                    "category": entry.get("category")
+                    or str((row.get("recommendedBusinesses") or [""])[0]),
+                    "latitude": lat,
+                    "longitude": lng,
+                    "travel_minutes": travel_minutes,
+                    "travel_mode": effective_mode if travel_minutes is not None else None,
+                    "meal": entry.get("meal"),
+                }
+            )
+    return result
 
 
 def schedule_to_ordered_ids(schedule: list[dict]) -> list[int]:

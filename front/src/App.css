@@ -1561,30 +1561,21 @@ body {
   overflow: hidden;
 }
 
-.kakao-map-iframe {
-  width: calc(100% + 300px);
-  height: 100%;
-  border: 0;
+.kakao-map-fallback-simple {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--white);
-  margin: 0;
-  transform: translateX(-300px);
-}
-
-.kakao-map-fallback-viewport {
-  margin-top: 6px;
   border: 1px solid var(--gray-200);
-  background: var(--white);
-  overflow: hidden;
+}
+.kakao-map-fallback-text {
+  color: var(--gray-400);
+  font-size: 12px;
 }
 .kakao-map-error {
   margin: 0;
   color: var(--gray-500);
   font-size: 12px;
-}
-.kakao-map-error-secondary {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--gray-400);
 }
 .kakao-map-link {
   display: inline-block;

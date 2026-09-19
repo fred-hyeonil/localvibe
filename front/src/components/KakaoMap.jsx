@@ -139,22 +139,9 @@ export default function KakaoMap({ address, latitude, longitude }) {
       <h3>위치 지도</h3>
       {addr ? <p className="kakao-map-address">{addr}</p> : null}
       {error ? (
-        <>
-          {mapUrl ? (
-            <div className="kakao-map-canvas kakao-map-fallback-viewport">
-              <iframe
-                src={mapUrl}
-                title="카카오 지도 폴백"
-                className="kakao-map-iframe"
-                loading="lazy"
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            </div>
-          ) : (
-            <p className="kakao-map-error">{error}</p>
-          )}
-          {mapUrl ? <p className="kakao-map-error kakao-map-error-secondary">{error}</p> : null}
-        </>
+        <div className="kakao-map-canvas kakao-map-fallback-simple">
+          <span className="kakao-map-fallback-text">지도 미리보기를 불러오지 못했어요.</span>
+        </div>
       ) : (
         <div ref={mapRef} className="kakao-map-canvas" />
       )}

@@ -370,17 +370,8 @@ export default function MultiMarkerMap({
       {useFallbackMap && fallbackMapUrl ? (
         <>
           <p className="multi-marker-map-skipped" style={{ marginBottom: 8 }}>
-            앱 내 지도 대신 카카오맵 미리보기를 표시합니다. 장소별로 열려면 아래 링크를 눌러 주세요.
+            앱 내 지도를 불러오지 못했어요. 장소별로 카카오맵에서 열어보세요.
           </p>
-          <div className="kakao-map-canvas kakao-map-fallback-viewport">
-            <iframe
-              src={fallbackMapUrl}
-              title="일정 지도 미리보기"
-              className="kakao-map-iframe"
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
-          </div>
           <ul className="multi-marker-map-fallback-list">
             {plotPoints.map(p => {
               const href = buildKakaoPlaceUrl(p);

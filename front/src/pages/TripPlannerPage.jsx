@@ -27,6 +27,32 @@ const API_BASE_URL =
 
 const EMPTY_REGION_MAP = new Map();
 
+/**
+ * /api/regions 전체 카탈로그(regionMap)가 아직 로딩 중일 때, 채팅 응답에 이미 포함된
+ * schedule 데이터(이름·카테고리·좌표)로 최소한의 자리표시 장소를 만든다.
+ * 이게 없으면 lookupRegion 실패 시 해당 id가 로드맵에서 통째로 조용히 사라진다.
+ */
+function buildFallbackRegionFromSchedule(id, schedule) {
+  const numId = Number(id);
+  const entry = Array.isArray(schedule)
+    ? schedule.find(e => Number(e?.placeId) === numId)
+    : null;
+  return {
+    id: numId,
+    name: entry?.placeName || `장소 #${numId}`,
+    category: entry?.category || '',
+    imageUrl: '',
+    address: '',
+    summary: '',
+    summaryShort: '',
+    province: '',
+    region: '',
+    latitude: entry?.latitude ?? null,
+    longitude: entry?.longitude ?? null,
+    isPlaceholder: true,
+  };
+}
+
 function TripPlannerPage({
   regionMap,
   scrappedIds = [],
@@ -52,6 +78,39 @@ function TripPlannerPage({
 
   const [roadmapLocations, setRoadmapLocations] = useState([]);
   const [tripDuration, setTripDuration] = useState(null);
+
+  // 자리표시(placeholder) 장소들: regionMap 전체 카탈로그가 나중에 로딩 완료되면
+  // 이름만 있던 항목을 이미지·주소 등 실제 데이터로 보강한다.
+  useEffect(() => {
+    if (!map.size) return;
+    setRoadmapLocations(prev => {
+      if (!prev.some(loc => loc.isPlaceholder)) return prev;
+      let changed = false;
+      const next = prev.map(loc => {
+        if (!loc.isPlaceholder) return loc;
+        const full = map.get(Number(loc.id));
+        if (!full) return loc;
+        changed = true;
+        const tripFieldKeys = [
+          'tripDay',
+          'tripTime',
+          'tripSlot',
+          'tripOrder',
+          'tripTravelMinutes',
+          'tripTravelMode',
+          'tripMeal',
+          'scheduleAdjusted',
+        ];
+        const tripFields = {};
+        for (const key of tripFieldKeys) {
+          if (loc[key] !== undefined) tripFields[key] = loc[key];
+        }
+        return { ...full, ...tripFields };
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionMap]);
 
   const chatInitialMessages = useMemo(() => {
     if (!plannerUserId) return null;
@@ -298,10 +357,9 @@ function TripPlannerPage({
   }, [selectedLocation?.id]);
 
   const handleReplaceLocation = (oldLocationId, newLocationId, schedule = null) => {
-    const newRegion = lookupRegion(newLocationId);
-    if (!newRegion) {
-      return;
-    }
+    const newRegion =
+      lookupRegion(newLocationId) ||
+      buildFallbackRegionFromSchedule(newLocationId, schedule);
     setRoadmapLocations(prev => {
       const next = prev.map(loc =>
         loc.id === oldLocationId ? newRegion : loc,
@@ -322,12 +380,9 @@ function TripPlannerPage({
     const cap = Number.isFinite(options?.maxLocations)
       ? Number(options.maxLocations)
       : null;
-    const newRegions = recommendedIds
-      .map(id => lookupRegion(id))
-      .filter(region => region !== undefined);
-    if (newRegions.length === 0) {
-      return;
-    }
+    const newRegions = recommendedIds.map(
+      id => lookupRegion(id) || buildFallbackRegionFromSchedule(id, options.schedule),
+    );
 
     setRoadmapLocations(prev => {
       const existingIds = new Set(prev.map(loc => loc.id));
@@ -355,12 +410,9 @@ function TripPlannerPage({
     if (!Array.isArray(recommendedIds) || recommendedIds.length === 0) {
       return;
     }
-    const next = recommendedIds
-      .map(id => lookupRegion(id))
-      .filter(region => region !== undefined);
-    if (next.length === 0) {
-      return;
-    }
+    const next = recommendedIds.map(
+      id => lookupRegion(id) || buildFallbackRegionFromSchedule(id, schedule),
+    );
     let withSchedule = applyScheduleToRegions(next, schedule);
     if (!schedule?.length && tripDuration?.days) {
       withSchedule = recomputeScheduleForOrderedLocations(
