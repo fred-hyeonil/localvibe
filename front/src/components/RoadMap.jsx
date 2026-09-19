@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import {
   displayPeriod,
@@ -185,6 +185,19 @@ export default function RoadMap({
     setDropHint(null);
   }
 
+  // dragover는 마우스가 움직이는 동안 아주 자주(프레임마다) 발생한다. 매번 새 객체로
+  // setDropHint를 부르면 같은 자리 위에 머물러 있을 때도 계속 리렌더가 일어나 드래그가
+  // 버벅였다. 값이 실제로 바뀔 때만 state를 갱신하도록 막는다.
+  function setItemDropHint(index) {
+    setDropHint(prev => (prev?.type === 'item' && prev.index === index ? prev : { type: 'item', index }));
+  }
+  function setDayDropHint(day) {
+    setDropHint(prev => (prev?.type === 'day' && prev.day === day ? prev : { type: 'day', day }));
+  }
+  function setDayEndDropHint(day) {
+    setDropHint(prev => (prev?.type === 'day-end' && prev.day === day ? prev : { type: 'day-end', day }));
+  }
+
   function commitReorder(nextLocations) {
     onItineraryChange?.(nextLocations);
     clearDrag();
@@ -236,6 +249,7 @@ export default function RoadMap({
       <motion.article
         key={`${node.id}-${node.renderIndex}`}
         id={`roadmap-place-${node.clickId}`}
+        layout="position"
         className={`sroadmap-item ${isSelected ? 'selected' : ''} ${
           isDragging ? 'sroadmap-item--dragging' : ''
         } ${itemDropActive ? 'sroadmap-item--drop-before' : ''}`}
@@ -259,10 +273,11 @@ export default function RoadMap({
           dragEnabled
             ? event => {
                 event.preventDefault();
-                setDropHint({
-                  type: 'item',
-                  index: node.renderIndex,
-                });
+                // 이 이벤트가 부모(day-section)로 계속 버블링되면, 부모의 onDragOver가
+                // 바로 뒤이어 dropHint를 'day'로 덮어써 버려서 카드 위에 정확히 올려도
+                // "여기에 놓기" 표시가 뜨지 않는 문제가 있었다. 여기서 멈춰야 한다.
+                event.stopPropagation();
+                setItemDropHint(node.renderIndex);
               }
             : undefined
         }
@@ -396,16 +411,16 @@ export default function RoadMap({
                 dragEnabled
                   ? event => {
                       event.preventDefault();
-                      setDropHint({ type: 'day', day: section.dayNumber });
+                      setDayDropHint(section.dayNumber);
                     }
                   : undefined
               }
               onDragLeave={
                 dragEnabled
                   ? () => {
-                      if (dropHint?.type === 'day' && dropHint.day === section.dayNumber) {
-                        setDropHint(null);
-                      }
+                      setDropHint(prev =>
+                        prev?.type === 'day' && prev.day === section.dayNumber ? null : prev,
+                      );
                     }
                   : undefined
               }
@@ -490,15 +505,60 @@ export default function RoadMap({
                           </span>
                         </div>
                       ) : null}
-                      {showDropSlot ? (
-                        <div className="sroadmap-drop-slot" aria-hidden="true">
-                          <span className="sroadmap-drop-slot-label">여기에 놓기</span>
-                        </div>
-                      ) : null}
+                      <AnimatePresence initial={false}>
+                        {showDropSlot ? (
+                          <motion.div
+                            key="drop-slot"
+                            layout
+                            className="sroadmap-drop-slot"
+                            aria-hidden="true"
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 58 }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.16, ease: 'easeOut' }}
+                          >
+                            <span className="sroadmap-drop-slot-label">여기에 놓기</span>
+                          </motion.div>
+                        ) : null}
+                      </AnimatePresence>
                       {renderPlaceCard(node, section, band)}
                     </div>
                   );
                 })}
+                {!section.isEmpty && dragEnabled && dragIndex != null ? (
+                  <div
+                    className="sroadmap-day-end-zone"
+                    onDragOver={event => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setDayEndDropHint(section.dayNumber);
+                    }}
+                    onDrop={event => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleDropOnDay(section.dayNumber);
+                    }}
+                  >
+                    <AnimatePresence initial={false}>
+                      {dropHint?.type === 'day-end' && dropHint.day === section.dayNumber ? (
+                        <motion.div
+                          key="drop-slot-end"
+                          layout
+                          className="sroadmap-drop-slot"
+                          aria-hidden="true"
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 58 }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.16, ease: 'easeOut' }}
+                        >
+                          <span className="sroadmap-drop-slot-label">
+                            {section.dayNumber}일차 맨 뒤에 놓기
+                          </span>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                  </div>
+                ) : null}
               </div>
             </section>
           );

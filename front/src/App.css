@@ -1912,47 +1912,41 @@ body {
   opacity: 1;
   transform: translateY(0);
 }
-/* 드래그 중인 카드: 살짝 들어 올려진 것처럼 기울이고 그림자를 줘서 "지금 이걸 옮기는 중"임을
-   opacity만으로 어렴풋이 보이던 것보다 분명하게 드러낸다. */
+/* 드래그 중인 카드: 그림자를 줘서 살짝 들어 올려진 것처럼 보이게 한다. transform(scale/rotate)은
+   일부러 안 쓴다 — 다른 카드들은 framer-motion의 layout 애니메이션으로 자리를 옮기는데,
+   같은 transform 속성을 CSS로 강제(!important)하면 그 계산과 충돌해 버벅였다. */
 .sroadmap-item--dragging {
-  opacity: 0.96;
-  /* framer-motion이 이 엘리먼트에 인라인 transform을 직접 남겨 두기 때문에, 외부
-     스타일시트의 transform은 !important 없이는 그 인라인 스타일에 가려 적용되지 않는다. */
-  transform: scale(1.02) rotate(-0.8deg) !important;
+  opacity: 0.85;
   box-shadow: var(--shadow-lg);
   border-color: var(--gray-300);
   cursor: grabbing;
   z-index: 5;
 }
 /* 카드가 놓일 위치: 얇은 선만으로는 "여기 들어간다"가 잘 안 와닿는다는 피드백을 받아,
-   실제 카드 한 장 크기만 한 빈 슬롯을 그 자리에 통째로 띄우는 방식으로 바꿨다.
-   드래그 중인 카드가 정확히 그 슬롯 자리로 쏙 들어갈 것처럼 보이는 게 목표. */
+   실제 카드 한 장 크기만 한 빈 슬롯을 그 자리에 통째로 띄우는 방식으로 바꿨다. 등장/퇴장
+   애니메이션은 이제 framer-motion(layout + initial/animate/exit)이 담당하므로 여기선 정적 스타일만. */
 .sroadmap-drop-slot {
-  height: 58px;
   margin-bottom: 6px;
+  overflow: hidden;
   border: 2px dashed var(--primary, #4f6ef7);
   border-radius: 12px;
   background: rgba(79, 110, 247, 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: sroadmap-drop-slot-in 0.15s ease;
 }
 .sroadmap-drop-slot-label {
   font-size: 11px;
   font-weight: 700;
   color: var(--primary, #4f6ef7);
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
-@keyframes sroadmap-drop-slot-in {
-  from {
-    opacity: 0;
-    transform: scaleY(0.7);
-  }
-  to {
-    opacity: 1;
-    transform: scaleY(1);
-  }
+/* 하루 목록 맨 아래: 평소엔 얇지만 드래그 중엔 눌러서 "여기 떨어뜨리면 맨 뒤로 간다"를
+   히트 영역으로 분명히 확보한다. 이게 없으면 마지막 카드 뒤 빈 공간이 거의 없어서
+   "맨 뒤로 넣기"를 겨냥하기 어려웠다. */
+.sroadmap-day-end-zone {
+  min-height: 22px;
 }
 .sroadmap-drag-handle {
   display: flex;
