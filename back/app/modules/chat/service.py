@@ -2581,6 +2581,15 @@ def _message_wants_new_itinerary(user_message: str) -> bool:
     return bool(re.search(r"\d+\s*박|\d+\s*일", t))
 
 
+def _is_cancelled_event(row: dict) -> bool:
+    """KTO 원본 데이터가 취소된 축제·행사를 이름에 "(취소)"를 붙인 채 그대로 내려주는 경우가 있다.
+
+    예: "대나무축제(취소)", "(개최 취소) 해남 땅끝매화축제". 취소된 행사를 여행 코스로
+    추천하면 안 되므로 트립 플래너 후보 풀에서 아예 빼둔다.
+    """
+    return "취소" in str(row.get("name") or "")
+
+
 def get_trip_chat_result(
     user_message: str,
     trip_duration: dict,
@@ -2594,7 +2603,7 @@ def get_trip_chat_result(
     """Trip planner용 채팅 - OpenAI 답변만 반환 (자동 메시지 없음)"""
     api_key: Optional[str] = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_API_KEY")
     model = "gpt-4o-mini"
-    rows = load_regions()
+    rows = [r for r in load_regions() if not _is_cancelled_event(r)]
     valid_region_ids = {int(row["id"]) for row in rows}
 
     # 이동수단(도보/대중교통/자차) - GPT 호출 없이 키워드로 가볍게 뽑아서 이동시간 계산에 씀.
