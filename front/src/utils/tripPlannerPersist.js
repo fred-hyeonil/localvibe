@@ -79,6 +79,8 @@ export function serializePlannerPlaces(locations) {
         tripSlot: String(loc.tripSlot || ''),
         tripOrder: loc.tripOrder ?? null,
         scheduleAdjusted: Boolean(loc.scheduleAdjusted),
+        tripTravelMinutes: loc.tripTravelMinutes ?? null,
+        tripTravelMode: loc.tripTravelMode ?? null,
       };
     })
     .filter(Boolean);
@@ -92,6 +94,8 @@ function mergeScheduleFields(base, entry) {
     tripSlot: entry.tripSlot ?? base.tripSlot ?? '',
     tripOrder: entry.tripOrder ?? base.tripOrder ?? null,
     scheduleAdjusted: entry.scheduleAdjusted ?? base.scheduleAdjusted,
+    tripTravelMinutes: entry.tripTravelMinutes ?? base.tripTravelMinutes ?? null,
+    tripTravelMode: entry.tripTravelMode ?? base.tripTravelMode ?? null,
   };
 }
 

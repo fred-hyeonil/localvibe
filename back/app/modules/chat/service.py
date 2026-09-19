@@ -1542,6 +1542,57 @@ def _infer_region_from_existing_ids(
     return None, carried_province
 
 
+_REMOVE_INTENT_RE = re.compile(r"빼|뺴|제외|말고|없애|지워|삭제")
+
+
+def _detect_named_removals(
+    user_message: str,
+    current_location_ids: Optional[list[int]],
+    row_by_id: dict[int, dict],
+) -> set[int]:
+    """"산타축제 말고", "담양호 빼줘"처럼 로드맵에 있는 장소 이름을 직접 언급하며
+    빼달라고 한 경우를 잡아낸다.
+
+    GPT 액션 분류가 이런 요청을 "refine"으로만 잡고 정확히 어떤 장소를 빼야
+    하는지까지는 못 짚어내는 경우가 있어(예: exclusion_tags는 "절"만 지원),
+    현재 로드맵 장소 이름이 메시지에 실제로 언급됐는지 결정론적으로 한 번 더 확인한다.
+    """
+    text = str(user_message or "")
+    if not _REMOVE_INTENT_RE.search(text):
+        return set()
+    text_key = _normalize_place_name_key(text)
+    text_words = sorted(
+        {w for w in re.split(r"[\s,·]+", text) if len(w) >= 2}, key=len, reverse=True
+    )
+    to_remove: set[int] = set()
+    for pid in current_location_ids or []:
+        row = row_by_id.get(int(pid))
+        if not row:
+            continue
+        name = str(row.get("name") or "").strip()
+        if len(name) < 2:
+            continue
+        name_key = _normalize_place_name_key(name)
+        if not name_key:
+            continue
+        matched = name_key in text_key
+        if not matched:
+            for word in text_words:
+                word_key = _normalize_place_name_key(word)
+                if len(word_key) >= 3 and word_key in name_key:
+                    matched = True
+                    break
+        if not matched:
+            for nw in sorted({w for w in name.split() if len(w) >= 2}, key=len, reverse=True):
+                nw_key = _normalize_place_name_key(nw)
+                if len(nw_key) >= 3 and nw_key in text_key:
+                    matched = True
+                    break
+        if matched:
+            to_remove.add(int(pid))
+    return to_remove
+
+
 def _refine_current_itinerary(
     user_message: str,
     current_location_ids: list[int],
@@ -1601,11 +1652,17 @@ def _refine_current_itinerary(
             items_per_day=items_per_day,
         )
 
+    named_removals = _detect_named_removals(user_message, current_location_ids, row_by_id)
+
     kept: list[int] = []
     removed_labels: list[str] = []
     for pid in current_location_ids or []:
         row = row_by_id.get(int(pid))
         if not row:
+            continue
+        if int(pid) in named_removals:
+            # "산타축제 말고", "담양호 빼줘"처럼 로드맵 장소 이름을 직접 언급하며 제거를 요청한 경우.
+            removed_labels.append(str(row.get("name") or "장소"))
             continue
         if exclusion_tags and not row_passes_exclusions(row, exclusion_tags):
             removed_labels.append(str(row.get("name") or "장소"))
@@ -2590,6 +2647,41 @@ def _is_cancelled_event(row: dict) -> bool:
     return "취소" in str(row.get("name") or "")
 
 
+def _normalize_place_name_for_dedupe(name: str) -> str:
+    return re.sub(r"\s+", "", str(name or "")).strip()
+
+
+def _place_completeness_score(row: dict) -> tuple:
+    """중복 이름 그룹 중 어느 행을 대표로 남길지 고르는 점수.
+
+    이미지·좌표·요약이 있는 쪽을 우선하고, 동률이면 요약이 더 긴 쪽을 남긴다.
+    """
+    return (
+        1 if str(row.get("imageUrl") or "").strip() else 0,
+        1 if row.get("latitude") is not None and row.get("longitude") is not None else 0,
+        len(str(row.get("summary") or "")),
+    )
+
+
+def _dedupe_places_by_name(rows: list[dict]) -> list[dict]:
+    """같은 장소가 서로 다른 id로 여러 번 수집된 경우(예: KTO+JN API 중복 수집), 하나만 남긴다.
+
+    이름에서 공백만 제거해 비교하며(예: "두륜산케이블카" == "두륜산 케이블카"),
+    같은 이름 그룹에서는 데이터가 더 온전한 행 하나만 트립 플래너 후보로 남긴다.
+    """
+    best_by_name: dict[str, dict] = {}
+    unnamed_rows: list[dict] = []
+    for row in rows:
+        key = _normalize_place_name_for_dedupe(row.get("name"))
+        if not key:
+            unnamed_rows.append(row)
+            continue
+        existing = best_by_name.get(key)
+        if existing is None or _place_completeness_score(row) > _place_completeness_score(existing):
+            best_by_name[key] = row
+    return list(best_by_name.values()) + unnamed_rows
+
+
 def get_trip_chat_result(
     user_message: str,
     trip_duration: dict,
@@ -2604,6 +2696,7 @@ def get_trip_chat_result(
     api_key: Optional[str] = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_API_KEY")
     model = "gpt-4o-mini"
     rows = [r for r in load_regions() if not _is_cancelled_event(r)]
+    rows = _dedupe_places_by_name(rows)
     valid_region_ids = {int(row["id"]) for row in rows}
 
     # 이동수단(도보/대중교통/자차) - GPT 호출 없이 키워드로 가볍게 뽑아서 이동시간 계산에 씀.
