@@ -1561,30 +1561,21 @@ body {
   overflow: hidden;
 }
 
-.kakao-map-iframe {
-  width: calc(100% + 300px);
-  height: 100%;
-  border: 0;
+.kakao-map-fallback-simple {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--white);
-  margin: 0;
-  transform: translateX(-300px);
-}
-
-.kakao-map-fallback-viewport {
-  margin-top: 6px;
   border: 1px solid var(--gray-200);
-  background: var(--white);
-  overflow: hidden;
+}
+.kakao-map-fallback-text {
+  color: var(--gray-400);
+  font-size: 12px;
 }
 .kakao-map-error {
   margin: 0;
   color: var(--gray-500);
   font-size: 12px;
-}
-.kakao-map-error-secondary {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--gray-400);
 }
 .kakao-map-link {
   display: inline-block;
@@ -1807,10 +1798,11 @@ body {
 }
 .sroadmap-day-section--empty {
   min-height: 72px;
-  padding-bottom: 8px;
-  border: 1px dashed var(--gray-200);
-  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--gray-200);
+  border-radius: 10px;
   background: var(--gray-50);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .sroadmap-day-period-summary {
   margin: 2px 0 0;
@@ -1822,7 +1814,7 @@ body {
 .sroadmap-day-empty-hint {
   margin: 4px 0 0;
   padding-left: 16px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--gray-400);
 }
 .sroadmap-time--order {
@@ -1900,36 +1892,59 @@ body {
   outline-offset: 4px;
   border-radius: 8px;
   background: #f8faff;
+  transition: background 0.15s ease, outline-color 0.15s ease;
 }
 .sroadmap-day-drop-label {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary, #4f6ef7);
   font-size: 10px;
-  font-weight: 600;
-  color: var(--primary, #4f6ef7);
+  font-weight: 700;
+  color: var(--white);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transform: translateY(-2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 .sroadmap-day-section--drop-target .sroadmap-day-drop-label {
   opacity: 1;
+  transform: translateY(0);
 }
+/* 드래그 중인 카드: 살짝 들어 올려진 느낌의 그림자/스케일은 framer-motion의 whileDrag가
+   직접 관리한다(Reorder.Item) — 여기서는 CSS로 손댈 수 없는 opacity/커서/쌓임 순서만 처리.
+   opacity는 카드 입장 애니메이션(itemVariants)이 이미 인라인으로 1을 박아두기 때문에
+   !important 없이는 절대 반영되지 않는다. */
 .sroadmap-item--dragging {
-  opacity: 0.45;
-}
-.sroadmap-item--drop-before {
-  box-shadow: inset 0 3px 0 var(--black);
+  opacity: 0.9 !important;
+  cursor: grabbing;
+  z-index: 5;
 }
 .sroadmap-drag-handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 100%;
+  width: 24px;
+  height: 30px;
+  border-radius: 8px;
   color: var(--gray-400);
   cursor: grab;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.sroadmap-item:active .sroadmap-drag-handle {
+.sroadmap-drag-handle svg {
+  width: 15px;
+  height: 15px;
+}
+.sroadmap-item:hover .sroadmap-drag-handle {
+  color: var(--gray-600);
+  background: var(--gray-100);
+}
+.sroadmap-item:active .sroadmap-drag-handle,
+.sroadmap-item--dragging .sroadmap-drag-handle {
   cursor: grabbing;
+  color: var(--black);
+  background: var(--gray-200);
 }
 .sroadmap-day-tabs {
   display: flex;
@@ -1972,6 +1987,7 @@ body {
 .sroadmap-day-path {
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
 .sroadmap-travel-hint {
@@ -1993,6 +2009,14 @@ body {
   font-size: 11px;
   color: var(--gray-400);
   font-variant-numeric: tabular-nums;
+}
+
+/* 카드 안에 얹는 이동시간 표시 — grid 첫 칸부터 끝까지 한 줄로 걸쳐 카드 맨 위에 붙는다 */
+.sroadmap-travel-hint--inline {
+  grid-column: 1 / -1;
+  margin: -2px 0 2px;
+  padding: 0 0 4px;
+  border-bottom: 1px dashed var(--gray-100);
 }
 
 .sroadmap-day-hero {
@@ -2167,17 +2191,19 @@ body {
 }
 
 .sroadmap-item {
+  position: relative;
   border: 1px solid var(--gray-200);
   background: var(--white);
   padding: 10px;
   margin: 0;
   display: grid;
-  grid-template-columns: 12px auto minmax(0, 1fr);
+  grid-template-columns: 24px auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   text-align: left;
   border-radius: 12px;
-  transition: background 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.15s ease,
+    opacity 0.15s ease, margin-top 0.15s ease;
 }
 
 .sroadmap-item:hover {
@@ -2200,7 +2226,6 @@ body {
   justify-content: center;
   align-items: center;
   height: 100%;
-  position: relative;
 }
 
 .sroadmap-dot {
@@ -2215,29 +2240,27 @@ body {
   transition: opacity 0.12s ease;
 }
 
+/* 삭제 버튼은 카드 오른쪽 위 모서리에 별도로 떠서, 드래그 핸들과 겹치지 않게 한다 */
 .sroadmap-marker-actions {
   position: absolute;
-  left: 50%;
-  top: 50%;
+  top: 6px;
+  right: 6px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 4px;
   align-items: center;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: opacity 0.12s ease;
-  z-index: 2;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 3;
 }
 
 .sroadmap-item:hover .sroadmap-marker-actions,
 .sroadmap-item:focus-within .sroadmap-marker-actions {
   opacity: 1;
   pointer-events: auto;
-}
-.sroadmap-item:hover .sroadmap-dot,
-.sroadmap-item:focus-within .sroadmap-dot {
-  opacity: 0.12;
+  transform: translateY(0);
 }
 
 .sroadmap-remove-btn {
@@ -3503,7 +3526,7 @@ body {
     max-height: none;
   }
   .sroadmap-item {
-    grid-template-columns: 12px 110px minmax(0, 1fr);
+    grid-template-columns: 24px 110px minmax(0, 1fr);
   }
 }
 
@@ -3553,7 +3576,7 @@ body {
     height: 50vh;
   }
   .sroadmap-item {
-    grid-template-columns: 10px 88px minmax(0, 1fr);
+    grid-template-columns: 22px 88px minmax(0, 1fr);
     gap: 7px;
   }
   .sroadmap-timeline-list::before {

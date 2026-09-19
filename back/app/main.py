@@ -50,9 +50,12 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     api_app = FastAPI(title="LocalVibe API", lifespan=lifespan)
+    # allow_origins=["*"] + allow_credentials=True는 CORS 스펙상 조합 자체가 유효하지 않아서
+    # (와일드카드 오리진은 자격 증명 허용 시 브라우저가 거부) 프론트가 접속한 호스트에 따라
+    # 간헐적으로 CORS 에러가 났다. localhost/127.0.0.1(포트 무관) + 배포 도메인만 명시적으로 허용.
     api_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

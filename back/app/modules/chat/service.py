@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+from datetime import date
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -203,6 +204,30 @@ _TRANSPORT_KEYWORDS: dict[str, list[str]] = {
     "public": ["대중교통", "버스", "지하철", "기차"],
     "car": ["자차", "차", "드라이브", "자가용", "렌트"],
 }
+
+# "대중교통으로 바꿔줘"처럼 메시지 전체가 이동수단 변경 요청뿐일 때만 매칭한다.
+# 장소 추가/삭제 등 다른 요청과 섞여 있으면(예: "주차장 근처로 바꿔줘") 매칭하지 않도록
+# 문장 전체를 앵커(^...$)로 검사한다.
+_TRANSPORT_ONLY_CHANGE_RE = re.compile(
+    r"^[\s!?.~,ㅋㅎㅜㅠ]*(이동\s*수단은?\s*|이동\s*방법은?\s*)?"
+    r"(대중교통|버스|지하철|기차|도보|걸어서|뚜벅이|걷기|자차|드라이브|자가용|렌트|차)"
+    r"\s*(으로|로)?\s*"
+    r"(바꿔줘|바꿔|바꾸고\s*싶어|바꾸자|변경해\s*줘|변경할래|변경|이용할래|이용할게|"
+    r"타고\s*갈래|타고\s*갈게|타고\s*이동할래|타고\s*이동할게|갈래|갈게|가고\s*싶어)"
+    r"[\s!?.~,ㅋㅎㅜㅠ]*$"
+)
+
+
+def _match_transport_only_mode(user_message: str) -> Optional[str]:
+    """이동수단 변경만 요청하는 메시지면 해당 이동수단 키를, 아니면 None을 반환."""
+    m = _TRANSPORT_ONLY_CHANGE_RE.match(user_message.strip())
+    if not m:
+        return None
+    keyword = m.group(2)
+    for mode, kws in _TRANSPORT_KEYWORDS.items():
+        if keyword in kws:
+            return mode
+    return None
 
 _RELATION_SYSTEM_PROMPTS: dict[str, str] = {
     "couple": (
@@ -1324,7 +1349,10 @@ def _full_schedule_for_replace(
     _, _, sched = _apply_trip_schedule(
         merged, rows, days, reg_f, prov_f, row_by_id, transport_mode=transport_mode
     )
-    return recommend_core.schedule_entries_for_api(sched) or []
+    # 원본(snake_case) 그대로 반환한다. _pack_trip_response가 이 값을 다시 한 번
+    # schedule_entries_for_api()로 변환하므로, 여기서 미리 변환해버리면(placeId 등
+    # camelCase만 남음) 그 두 번째 변환이 place_id를 못 찾아 스케줄 전체가 사라진다.
+    return sched or []
 
 
 def _replace_drop_note(
@@ -1348,8 +1376,24 @@ def _replace_drop_note(
     if not row:
         return None
     reason = _explain_schedule_drop_reason(row, reg_f, prov_f)
-    name = str(row.get("name") or "")
-    return f" 다만 {name}{_josa_eun_neun(name)} {reason} 이번엔 반영하지 못했어요."
+    return f" {reason} 이번엔 반영하지 못했어요."
+
+
+def _ids_from_schedule(schedule_entries: list[dict]) -> list[int]:
+    """API 형태 schedule([{placeId, ...}, ...])에서 순서 그대로 id 목록을 뽑는다.
+
+    단일 장소 교체(replace) 후 recommendedRegionIds는 반드시 이 결과를 써야 한다.
+    안 그러면 응답 텍스트는 "기존 로드맵 유지 + 1곳 교체"를 설명하는데, 실제로
+    프론트에 내려가는 id 목록은 교체 후보 검색 결과(몇 개뿐)로 따로 남아서
+    로드맵이 텍스트와 다르게 통째로 날아가 버린다.
+    """
+    ids: list[int] = []
+    for entry in schedule_entries or []:
+        try:
+            ids.append(int(entry.get("placeId") if "placeId" in entry else entry.get("place_id")))
+        except (TypeError, ValueError):
+            continue
+    return ids
 
 
 def _count_cafe_ids(place_ids: list[int], row_by_id: dict[int, dict]) -> int:
@@ -1368,6 +1412,12 @@ def _count_food_ids(place_ids: list[int], row_by_id: dict[int, dict]) -> int:
     )
 
 
+_WANTS_CHANGE_RE = re.compile(
+    r"바꿔|바꾸|교체|넣어|넣고|추가|채워|다른\s*(곳|데|장소)|다른데|갈래|"
+    r"들르|들러|다시\s*(짜|추천)|말고"
+)
+
+
 def _refine_swap_count(
     kept_len: int,
     user_message: str,
@@ -1376,22 +1426,27 @@ def _refine_swap_count(
     prefer_cafe: bool = False,
     prefer_food: bool = False,
 ) -> int:
-    """카페뿐 아니라 맛집·식당 요청도 같은 방식으로 강제 스왑 대상이 되게 한다.
+    """일정이 이미 꽉 찬 상태에서도 "바꿔줘"/"추가해줘"류 요청은 반드시 자리를 만든다.
 
-    "카페 좀 더 넣어줘"만 남는 자리가 없을 때 기존 장소를 밀어내던 것을,
-    "맛집 좀 더 넣어줘"에도 똑같이 적용해서 두 요청이 비대칭으로 동작하지 않게 한다.
+    카페/맛집처럼 테마가 명시된 요청은 목표 비율만큼 더 크게 밀어내고,
+    "바꿔줘", "다른 곳 추천해줘", "OO도 가고 싶어"처럼 테마 없이 그냥 바꾸거나
+    더 넣어달라는 일반적인 요청도 최소 1곳은 무조건 비워서, 로드맵이 꽉 찼다는
+    이유만으로 요청이 조용히 무시되는 일이 없게 한다.
     """
     text = str(user_message or "")
-    if kept_len <= 0 or not (prefer_cafe or prefer_food):
+    if kept_len <= 0:
         return 0
-    theme_word = r"(카페|맛집|식당)"
-    if re.search(rf"{theme_word}\s*위주|위주.*{theme_word}|{theme_word}\s*중심|{theme_word}\s*메인", text):
-        target = max(3, round(kept_len * 0.35))
-        return max(0, target - theme_count)
-    if re.search(rf"몇\s*개\s*빼|빼고.*(넣|추가)|추가.*{theme_word}|{theme_word}.*추가", text):
-        return max(2, min(5, kept_len // 3))
-    if re.search(r"위주|바꿔|조정|짜|넣|추가", text):
+    if prefer_cafe or prefer_food:
+        theme_word = r"(카페|맛집|식당)"
+        if re.search(rf"{theme_word}\s*위주|위주.*{theme_word}|{theme_word}\s*중심|{theme_word}\s*메인", text):
+            target = max(3, round(kept_len * 0.35))
+            return max(0, target - theme_count)
+        if re.search(rf"몇\s*개\s*빼|빼고.*(넣|추가)|추가.*{theme_word}|{theme_word}.*추가", text):
+            return max(2, min(5, kept_len // 3))
+    if re.search(r"위주|조정|짜", text):
         return max(2, min(4, kept_len // 3))
+    if _WANTS_CHANGE_RE.search(text):
+        return max(1, min(3, max(1, kept_len // 4)))
     return 0
 
 
@@ -1593,6 +1648,43 @@ def _detect_named_removals(
     return to_remove
 
 
+_PURE_ADD_RE = re.compile(r"추가|넣어|넣고|채워\s*줘|더\s*넣|더\s*추가")
+_REPLACE_IMPLYING_RE = re.compile(r"바꿔|바꾸|교체|다른\s*(곳|데|장소)|다른데")
+_ADD_COUNT_DIGIT_RE = re.compile(r"(\d+)\s*(곳|개|군데)")
+_ADD_COUNT_WORD_RE = {
+    "한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5,
+}
+
+
+def _is_pure_addition_request(user_message: str) -> bool:
+    """"카페 추가해줘"처럼 순수하게 더 넣어달라는 요청인지 판별한다.
+
+    "빼고 추가해줘"(_REMOVE_INTENT_RE)나 "다른 곳으로 바꿔줘"(_REPLACE_IMPLYING_RE)처럼
+    기존 장소를 없애는 의미가 섞이면 False - 그런 경우는 기존 교체(swap) 로직을 그대로 탄다.
+    순수 추가 요청은 기존 로드맵을 건드리지 않고 새 장소만 얹어야 하기 때문.
+    """
+    text = str(user_message or "")
+    if _REMOVE_INTENT_RE.search(text):
+        return False
+    if _REPLACE_IMPLYING_RE.search(text):
+        return False
+    return bool(_PURE_ADD_RE.search(text))
+
+
+def _detect_requested_add_count(user_message: str, default: int = 2) -> int:
+    text = str(user_message or "")
+    m = _ADD_COUNT_DIGIT_RE.search(text)
+    if m:
+        try:
+            return max(1, min(6, int(m.group(1))))
+        except ValueError:
+            pass
+    for word, n in _ADD_COUNT_WORD_RE.items():
+        if re.search(rf"{word}\s*(곳|개|군데)", text):
+            return max(1, min(6, n))
+    return default
+
+
 def _refine_current_itinerary(
     user_message: str,
     current_location_ids: list[int],
@@ -1674,8 +1766,9 @@ def _refine_current_itinerary(
             continue
         kept.append(int(pid))
 
+    pure_add = _is_pure_addition_request(user_message)
     theme_count = _count_cafe_ids(kept, row_by_id) if prefer_cafe else _count_food_ids(kept, row_by_id)
-    swap_n = _refine_swap_count(
+    swap_n = 0 if pure_add else _refine_swap_count(
         len(kept), user_message, theme_count, prefer_cafe=prefer_cafe, prefer_food=prefer_food
     )
     if swap_n > 0:
@@ -1688,7 +1781,14 @@ def _refine_current_itinerary(
                 removed_labels.append(str(row.get("name") or "장소"))
         kept = [p for p in kept if p not in swap_out]
 
-    slots = max(0, max_locations - len(kept))
+    if pure_add:
+        # "카페 추가해줘"류는 기존 로드맵을 그대로 두고 요청한 만큼만 더 얹는다.
+        # max_locations(일차별 정원)에 막혀 잘려나가지 않도록 정원 자체를 늘린다.
+        slots = _detect_requested_add_count(user_message)
+        effective_max_locations = len(kept) + slots
+    else:
+        slots = max(0, max_locations - len(kept))
+        effective_max_locations = max_locations
     exclude_set = set(kept)
     new_ids: list[int] = []
 
@@ -1708,42 +1808,21 @@ def _refine_current_itinerary(
             prefer_food=prefer_food,
         )
 
-    merged = (kept + [i for i in new_ids if i not in exclude_set])[:max_locations]
+    merged = (kept + [i for i in new_ids if i not in exclude_set])[:effective_max_locations]
 
-    parts: list[str] = []
-    if removed_labels:
-        shown = "·".join(removed_labels[:3])
-        if len(removed_labels) > 3:
-            shown += f" 외 {len(removed_labels) - 3}곳"
-        parts.append(f"{shown}{_josa_eun_neun(shown)} 일정에서 뺐어요.")
-    if new_ids:
-        added_names = [
-            str(row_by_id[i].get("name") or "")
-            for i in new_ids[:3]
-            if row_by_id.get(i)
-        ]
-        label = "카페" if prefer_cafe else ("맛집" if prefer_food else "추천 장소")
-        if added_names:
-            parts.append(
-                f"{label} 위주로 {', '.join(added_names)}"
-                f"{'' if len(new_ids) <= 3 else f' 외 {len(new_ids) - 3}곳'}을 넣었어요."
-            )
-        else:
-            parts.append(f"{label} 위주로 {len(new_ids)}곳을 채웠어요.")
+    # 왼쪽 로드맵이 실제 변경 결과를 보여주니, 채팅에는 "무엇을 무엇으로 바꿨는지"를
+    # 장황하게 나열하지 않고 짧은 완료 안내만 준다. 다만 요청이 반영되지 않았을 때는
+    # 사용자가 다시 시도할 수 있게 이유를 안내한다.
+    if new_ids or removed_labels:
+        answer = "일정을 수정했어요."
     elif slots > 0:
-        parts.append(
-            "조건에 맞는 새 장소를 더 찾지 못했어요. 지역명을 포함해 다시 말씀해 주세요."
-        )
+        answer = "조건에 맞는 새 장소를 더 찾지 못했어요. 지역명을 포함해 다시 말씀해 주세요."
     elif prefer_cafe and _count_cafe_ids(merged, row_by_id) == 0:
-        parts.append(
-            "일정에 카페가 아직 없어요. 「카페 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
-        )
+        answer = "일정에 카페가 아직 없어요. 「카페 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
     elif prefer_food and _count_food_ids(merged, row_by_id) == 0:
-        parts.append(
-            "일정에 맛집이 아직 없어요. 「맛집 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
-        )
-
-    answer = " ".join(parts) if parts else "일정을 조정했어요."
+        answer = "일정에 맛집이 아직 없어요. 「맛집 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
+    else:
+        answer = "일정을 조정했어요."
     return merged, answer
 
 
@@ -1884,22 +1963,8 @@ def _refine_single_day_itinerary(
         merged.extend(by_day.get(d, []))
     merged = merged[:max_locations]
 
-    parts: list[str] = [f"{target_day}일차 일정을 조정했어요."]
-    if removed_labels:
-        shown = "·".join(removed_labels[:3])
-        if len(removed_labels) > 3:
-            shown += f" 외 {len(removed_labels) - 3}곳"
-        parts.append(f"{shown}{_josa_eun_neun(shown)} 이번 일정에서 뺐어요.")
-    if new_day_ids:
-        names = [
-            str(row_by_id[i].get("name") or "")
-            for i in new_day_ids[:3]
-            if i in row_by_id
-        ]
-        names = [n for n in names if n]
-        if names:
-            parts.append(f"추가·교체: {', '.join(names)}.")
-    answer = " ".join(parts)
+    # 왼쪽 로드맵에서 바로 결과가 보이므로 몇 곳을 뺐다/넣었다 나열하지 않는다.
+    answer = f"{target_day}일차 일정을 수정했어요."
     return merged, answer
 
 
@@ -2002,7 +2067,8 @@ def _build_personalized_trip_answer(
     duration_label = "당일치기" if days <= 1 else f"{nights}박 {days}일"
     destination = _destination_label(reg_f, prov_f, ids, row_by_id)
     preference_phrase = _extract_preference_phrase(user_message, intent)
-    transport_phrase = _TRANSPORT_INTRO_PHRASE.get(str(transport_mode or ""), "")
+    # 광주·전남은 대중교통이 약해 이동수단을 안 밝히면 자차로 가정한다.
+    transport_phrase = _TRANSPORT_INTRO_PHRASE.get(str(transport_mode or "car"), "")
 
     lines = [
         f"{transport_phrase}회원님을 위해 {destination} {duration_label}, "
@@ -2046,7 +2112,7 @@ def _build_personalized_trip_answer(
         )
 
     if not transport_mode:
-        lines.append("이동수단이 어떻게 되세요? 차·대중교통·도보 중 알려주시면 이동시간을 더 정확하게 맞춰드릴게요.")
+        lines.append("이동수단은 기본적으로 자동차 기준으로 계산했어요. 대중교통·도보로 이동하실 예정이면 말씀해 주세요.")
 
     return "\n".join(lines)
 
@@ -2229,26 +2295,35 @@ def _trip_row_matches_geo_filter(
     row: dict, reg_f: Optional[str], prov_f: Optional[str]
 ) -> bool:
     """Pinecone/토큰으로 고른 행정구역 필터와 행이 일치하는지."""
-    if prov_f:
-        if str(row.get("province") or "").strip() != prov_f:
-            return False
+    if not reg_f and not prov_f:
+        return True
+
+    raw_province = str(row.get("province") or "").strip()
+    # "전남광주통합특별시"처럼 province 컬럼 자체가 전남+광주 병합 라벨로 오염된 행은
+    # prov_f("광주광역시" 등)와 절대 문자열이 같을 수 없다. province 컬럼으로 바로
+    # 탈락시키지 않고 아래 주소·이름 텍스트 기반 판별로 넘긴다.
+    province_is_noisy = any(noise in raw_province for noise in _ADDRESS_NOISE_PREFIXES)
+    if prov_f and not province_is_noisy and raw_province != prov_f:
+        return False
+
+    rr = _strip_address_noise(row.get("region") or "").strip()
+    blob = _strip_address_noise(
+        " ".join(
+            [
+                rr,
+                str(row.get("address") or ""),
+                str(row.get("name") or ""),
+                str(row.get("summary") or "")[:120],
+            ]
+        )
+    )
+
     if reg_f:
         city = reg_f.strip()
         if not city:
             return True
-        rr = _strip_address_noise(row.get("region") or "").strip()
         if rr == city or rr.startswith(city):
             return True
-        blob = _strip_address_noise(
-            " ".join(
-                [
-                    rr,
-                    str(row.get("address") or ""),
-                    str(row.get("name") or ""),
-                    str(row.get("summary") or "")[:120],
-                ]
-            )
-        )
         if city in blob:
             return True
         # 다른 시·군명이 이름/주소에 더 뚜렷하면 제외 (여수 요청에 순천·목포 등)
@@ -2258,6 +2333,15 @@ def _trip_row_matches_geo_filter(
             if other in blob and city not in blob:
                 return False
         return False
+
+    if prov_f and province_is_noisy:
+        # 시·군(reg_f) 없이 도(道) 단위(prov_f)만 있을 때, 오염된 province 대신
+        # 주소·이름 텍스트에서 그 도에 속한 도시 토큰을 찾아 대신 판별한다.
+        for city, province in _CITY_TOKEN_TO_PROVINCE.items():
+            if province == prov_f and city in blob:
+                return True
+        return False
+
     return True
 
 
@@ -2647,6 +2731,48 @@ def _is_cancelled_event(row: dict) -> bool:
     return "취소" in str(row.get("name") or "")
 
 
+_EVENT_YEAR_RE = re.compile(r"(19|20)\d{2}")
+
+
+def _is_stale_year_event(row: dict) -> bool:
+    """"2022 목포 뮤직플레이", "2025 여수 국가유산 야행"처럼 이름에 연도가 박힌 축제·행사는
+
+    그 해에만 유효한 1회성 행사일 가능성이 높다. 이름에 올해가 아닌 다른 연도가
+    있으면 지난(또는 아직 안 정해진 미래) 행사로 보고 트립 플래너 후보에서 뺀다.
+    이름에 연도가 아예 없는 축제(예: "제3회 담양산타축제")는 매년 열리는 걸로 보고 그대로 둔다.
+    """
+    m = _EVENT_YEAR_RE.search(str(row.get("name") or ""))
+    if not m:
+        return False
+    return int(m.group(0)) != date.today().year
+
+
+_SEASON_MONTHS = {
+    "봄": (3, 4, 5),
+    "여름": (6, 7, 8),
+    "가을": (9, 10, 11),
+    "겨울": (12, 1, 2),
+}
+
+
+def _is_off_season_festival(row: dict) -> bool:
+    """"유달산 봄축제"처럼 이름에 계절이 박힌 축제·행사는 그 계절이 아니면 추천하지 않는다.
+
+    지금이 9월(가을)인데 봄축제를 추천하면 어색하다. 축제/행사 카테고리인 것만
+    계절 단어와 현재 달을 대조하고, "봄의 왈츠 촬영지"처럼 다른 유형(관광지 등)
+    이름에 계절 단어가 우연히 들어간 경우는 건드리지 않는다.
+    """
+    rb = row.get("recommendedBusinesses") or []
+    if "축제/행사" not in rb:
+        return False
+    name = str(row.get("name") or "")
+    current_month = date.today().month
+    for season, months in _SEASON_MONTHS.items():
+        if season in name and current_month not in months:
+            return True
+    return False
+
+
 def _normalize_place_name_for_dedupe(name: str) -> str:
     return re.sub(r"\s+", "", str(name or "")).strip()
 
@@ -2695,7 +2821,13 @@ def get_trip_chat_result(
     """Trip planner용 채팅 - OpenAI 답변만 반환 (자동 메시지 없음)"""
     api_key: Optional[str] = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_API_KEY")
     model = "gpt-4o-mini"
-    rows = [r for r in load_regions() if not _is_cancelled_event(r)]
+    rows = [
+        r
+        for r in load_regions()
+        if not _is_cancelled_event(r)
+        and not _is_stale_year_event(r)
+        and not _is_off_season_festival(r)
+    ]
     rows = _dedupe_places_by_name(rows)
     valid_region_ids = {int(row["id"]) for row in rows}
 
@@ -2706,6 +2838,28 @@ def get_trip_chat_result(
         if any(kw in _msg_lower for kw in _tr_kws):
             transport_mode = _tr_key
             break
+
+    # "대중교통으로 바꿔줘"처럼 이동수단 변경만 요청한 경우, 기존 일정을 재배치(replan)하지
+    # 않고 현재 schedule의 day/순서는 그대로 둔 채 이동시간만 새 이동수단 기준으로 다시 계산한다.
+    transport_only_mode = _match_transport_only_mode(user_message)
+    if transport_only_mode and current_schedule:
+        from app.modules.chat.planner import recompute_schedule_travel_only
+
+        transport_mode = transport_only_mode
+        new_schedule = recompute_schedule_travel_only(current_schedule, rows, transport_mode)
+        kept_ids = _ids_from_schedule(new_schedule)
+        if kept_ids:
+            mode_phrase = {"walk": "도보로", "public": "대중교통으로", "car": "자차로"}.get(
+                transport_mode, f"{transport_mode}로"
+            )
+            return _pack_trip_response(
+                answer=f"이동수단을 {mode_phrase} 바꿨어요. 일정은 그대로 유지하고 이동시간만 다시 계산했어요.",
+                recommended_ids=kept_ids,
+                schedule=new_schedule,
+                detected_action="refine",
+                excluded_location_id=None,
+                detected_duration=None,
+            )
 
     parsed_duration = _parse_trip_duration_from_message(user_message)
     if parsed_duration and (trip_duration.get("days", 1) <= 1 or parsed_duration.get("days", 0) > 1):
@@ -2919,12 +3073,7 @@ def get_trip_chat_result(
             refined_ids = (refined_ids or []) + [mentioned_place_match_id]
             if len(refined_ids) > max_locations_early:
                 refined_ids = refined_ids[-max_locations_early:]
-            mentioned_row_name = row_by_id_early[mentioned_place_match_id].get("name", "")
-            if mentioned_row_name:
-                refine_answer = (
-                    f"{mentioned_row_name}을(를) 로드맵에 포함했어요. "
-                    + (refine_answer or "일정을 조정했어요.")
-                )
+            refine_answer = refine_answer or "일정을 수정했어요."
         changed = set(refined_ids or []) != set(current_location_ids or [])
         if refined_ids and (
             changed
@@ -2946,17 +3095,14 @@ def get_trip_chat_result(
                 if pid not in refined_ids_final and pid in row_by_id_early
             ]
             if dropped_by_schedule:
-                # 지역 필터·숙박 1일1곳·음식점 1일2곳 중 실제로 어느 규칙 때문에 빠졌는지
-                # 장소별로 판별해서, 관광지가 "숙박 제한" 때문이라는 식의 엉뚱한 설명을 막는다.
-                by_reason: dict[str, list[str]] = {}
-                for r in dropped_by_schedule:
-                    reason = _explain_schedule_drop_reason(r, reg_rf, prov_rf)
-                    by_reason.setdefault(reason, []).append(str(r.get("name") or ""))
-                for reason, names_list in by_reason.items():
-                    names = "·".join(names_list[:2])
-                    if len(names_list) > 2:
-                        names += f" 외 {len(names_list) - 2}곳"
-                    refine_answer = f"{refine_answer} 다만 {names}{_josa_eun_neun(names)} {reason} 다시 뺐어요."
+                # 왼쪽 로드맵에 실제 결과가 보이니 어떤 장소가 빠졌는지 나열하진 않되,
+                # 지역 필터·숙박 1일1곳·음식점 1일2곳 중 실제 사유는 짧게 알려준다.
+                reasons = {
+                    _explain_schedule_drop_reason(r, reg_rf, prov_rf)
+                    for r in dropped_by_schedule
+                }
+                for reason in reasons:
+                    refine_answer = f"{refine_answer} {reason} 일부는 반영하지 못했어요."
             return _pack_trip_response(
                 answer=refine_answer,
                 recommended_ids=refined_ids_final,
@@ -3014,9 +3160,12 @@ def get_trip_chat_result(
     reg_f, prov_f = _detect_embedding_filters(user_message, rows)
     if not reg_f and not prov_f and mentioned_place_match_id and mentioned_place_match_id in row_by_id:
         # 지역명은 안 말했지만 구체적 명소를 언급 → 그 명소의 지역으로 일정 범위를 좁힌다.
-        mentioned_row = row_by_id[mentioned_place_match_id]
-        prov_f = mentioned_row.get("province") or mentioned_row.get("region")
-        reg_f = mentioned_row.get("region")
+        # province/region 컬럼을 그대로 쓰면 "전남광주통합특별시"처럼 오염된 값이 그대로
+        # reg_f/prov_f가 되어, 그 뒤 geo 필터가 이 값과 매칭되는 행을 하나도 못 찾고
+        # (오염 라벨은 텍스트 매칭 전에 항상 제거되므로) 방금 찾은 그 장소마저 걸러내
+        # 버린다. _infer_region_from_existing_ids와 동일하게 주소·이름 텍스트에서
+        # 도시 토큰을 뽑아내는 방식으로 일관되게 처리한다.
+        reg_f, prov_f = _infer_region_from_existing_ids([mentioned_place_match_id], row_by_id)
     if not reg_f and not prov_f and (current_location_ids or []):
         # "다시 해줘"처럼 지역 언급이 아예 없는 replan 요청 — 기존 로드맵의 지역을 이어간다.
         reg_f, prov_f = _infer_region_from_existing_ids(current_location_ids, row_by_id)
@@ -3147,6 +3296,9 @@ def get_trip_chat_result(
             replace_drop_note = _replace_drop_note(
                 recommended_ids[0], schedule_out, row_by_id, reg_f, prov_f
             )
+            # 응답 텍스트도 이 id 목록으로 만들어야 "일정 유지 + 1곳 교체"와 실제
+            # recommendedRegionIds가 일치한다 (안 그러면 로드맵이 텍스트와 다르게 날아감).
+            recommended_ids = _ids_from_schedule(schedule_out) or recommended_ids
         personalized_answer = (
             _build_personalized_trip_answer(
                 recommended_ids,
@@ -3197,6 +3349,7 @@ def get_trip_chat_result(
             replace_drop_note = _replace_drop_note(
                 recommended_ids[0], replace_schedule, row_by_id, reg_f, prov_f
             )
+            recommended_ids = _ids_from_schedule(replace_schedule) or recommended_ids
         fallback_dspy_answer = dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows)
         personalized_answer = (
             _build_personalized_trip_answer(
@@ -3361,6 +3514,7 @@ def get_trip_chat_result(
             replace_drop_note = _replace_drop_note(
                 ids[0], trip_schedule_out, row_by_id, reg_f, prov_f
             )
+            ids = _ids_from_schedule(trip_schedule_out) or ids
         fallback_llm_answer = llm_answer.strip() or _trip_answer_from_ids(ids, rows)
         answer = (
             _build_personalized_trip_answer(

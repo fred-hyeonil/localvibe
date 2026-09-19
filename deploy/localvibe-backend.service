@@ -1,0 +1,25 @@
+# /etc/systemd/system/localvibe-backend.service 에 이 내용을 복사해서 사용하세요.
+# 사용법(서버에서):
+#   sudo cp deploy/localvibe-backend.service /etc/systemd/system/localvibe-backend.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now localvibe-backend
+#   sudo systemctl status localvibe-backend   # 상태 확인
+#   sudo journalctl -u localvibe-backend -f   # 실시간 로그
+#
+# User/WorkingDirectory/ExecStart의 경로는 실제 배포 경로에 맞게 바꿔주세요.
+# 아래는 /home/ubuntu/localvibe 에 클론하고 back/.venv에 가상환경을 만든 경우 기준입니다.
+
+[Unit]
+Description=LocalVibe FastAPI backend (uvicorn)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/localvibe/back
+Environment="PATH=/home/ubuntu/localvibe/back/.venv/bin"
+ExecStart=/home/ubuntu/localvibe/back/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
