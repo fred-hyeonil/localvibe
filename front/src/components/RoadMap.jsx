@@ -463,13 +463,23 @@ export default function RoadMap({
                 ) : null}
               </div>
 
-              <div className="sroadmap-day-path">
+              <div
+                className={`sroadmap-day-path ${
+                  dragIndex != null ? 'sroadmap-day-path--dragging' : ''
+                }`}
+              >
                 {section.items.map((node, i) => {
                   const band = bandByRenderIndex.get(node.renderIndex) || {
                     key: 'flex',
                     label: '순서',
                     hint: '',
                   };
+                  const showDropSlot =
+                    dragEnabled &&
+                    dragIndex != null &&
+                    dragIndex !== node.renderIndex &&
+                    dropHint?.type === 'item' &&
+                    dropHint.index === node.renderIndex;
                   return (
                     <div key={`flow-${node.renderIndex}`} className="sroadmap-item-flow">
                       {i > 0 && Number.isFinite(node.travelMinutes) ? (
@@ -478,6 +488,11 @@ export default function RoadMap({
                           <span className="sroadmap-travel-label">
                             {TRAVEL_MODE_LABEL[node.travelMode] || '이동'} {node.travelMinutes}분
                           </span>
+                        </div>
+                      ) : null}
+                      {showDropSlot ? (
+                        <div className="sroadmap-drop-slot" aria-hidden="true">
+                          <span className="sroadmap-drop-slot-label">여기에 놓기</span>
                         </div>
                       ) : null}
                       {renderPlaceCard(node, section, band)}

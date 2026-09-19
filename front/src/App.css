@@ -1798,10 +1798,11 @@ body {
 }
 .sroadmap-day-section--empty {
   min-height: 72px;
-  padding-bottom: 8px;
-  border: 1px dashed var(--gray-200);
-  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--gray-200);
+  border-radius: 10px;
   background: var(--gray-50);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .sroadmap-day-period-summary {
   margin: 2px 0 0;
@@ -1813,7 +1814,7 @@ body {
 .sroadmap-day-empty-hint {
   margin: 4px 0 0;
   padding-left: 16px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--gray-400);
 }
 .sroadmap-time--order {
@@ -1891,36 +1892,92 @@ body {
   outline-offset: 4px;
   border-radius: 8px;
   background: #f8faff;
+  transition: background 0.15s ease, outline-color 0.15s ease;
 }
 .sroadmap-day-drop-label {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary, #4f6ef7);
   font-size: 10px;
-  font-weight: 600;
-  color: var(--primary, #4f6ef7);
+  font-weight: 700;
+  color: var(--white);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transform: translateY(-2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 .sroadmap-day-section--drop-target .sroadmap-day-drop-label {
   opacity: 1;
+  transform: translateY(0);
 }
+/* 드래그 중인 카드: 살짝 들어 올려진 것처럼 기울이고 그림자를 줘서 "지금 이걸 옮기는 중"임을
+   opacity만으로 어렴풋이 보이던 것보다 분명하게 드러낸다. */
 .sroadmap-item--dragging {
-  opacity: 0.45;
+  opacity: 0.96;
+  /* framer-motion이 이 엘리먼트에 인라인 transform을 직접 남겨 두기 때문에, 외부
+     스타일시트의 transform은 !important 없이는 그 인라인 스타일에 가려 적용되지 않는다. */
+  transform: scale(1.02) rotate(-0.8deg) !important;
+  box-shadow: var(--shadow-lg);
+  border-color: var(--gray-300);
+  cursor: grabbing;
+  z-index: 5;
 }
-.sroadmap-item--drop-before {
-  box-shadow: inset 0 3px 0 var(--black);
+/* 카드가 놓일 위치: 얇은 선만으로는 "여기 들어간다"가 잘 안 와닿는다는 피드백을 받아,
+   실제 카드 한 장 크기만 한 빈 슬롯을 그 자리에 통째로 띄우는 방식으로 바꿨다.
+   드래그 중인 카드가 정확히 그 슬롯 자리로 쏙 들어갈 것처럼 보이는 게 목표. */
+.sroadmap-drop-slot {
+  height: 58px;
+  margin-bottom: 6px;
+  border: 2px dashed var(--primary, #4f6ef7);
+  border-radius: 12px;
+  background: rgba(79, 110, 247, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: sroadmap-drop-slot-in 0.15s ease;
+}
+.sroadmap-drop-slot-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary, #4f6ef7);
+  letter-spacing: 0.02em;
+}
+@keyframes sroadmap-drop-slot-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
 }
 .sroadmap-drag-handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 100%;
+  width: 24px;
+  height: 30px;
+  border-radius: 8px;
   color: var(--gray-400);
   cursor: grab;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.sroadmap-item:active .sroadmap-drag-handle {
+.sroadmap-drag-handle svg {
+  width: 15px;
+  height: 15px;
+}
+.sroadmap-item:hover .sroadmap-drag-handle {
+  color: var(--gray-600);
+  background: var(--gray-100);
+}
+.sroadmap-item:active .sroadmap-drag-handle,
+.sroadmap-item--dragging .sroadmap-drag-handle {
   cursor: grabbing;
+  color: var(--black);
+  background: var(--gray-200);
 }
 .sroadmap-day-tabs {
   display: flex;
@@ -1963,6 +2020,12 @@ body {
 .sroadmap-day-path {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  transition: gap 0.18s ease;
+}
+/* 카드를 드래그하는 동안 카드 사이 간격을 넓혀서, 어디에 놓일지 감이 오도록 여백을 만든다 */
+.sroadmap-day-path--dragging {
+  gap: 8px;
 }
 
 .sroadmap-travel-hint {
@@ -2158,17 +2221,19 @@ body {
 }
 
 .sroadmap-item {
+  position: relative;
   border: 1px solid var(--gray-200);
   background: var(--white);
   padding: 10px;
   margin: 0;
   display: grid;
-  grid-template-columns: 12px auto minmax(0, 1fr);
+  grid-template-columns: 24px auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   text-align: left;
   border-radius: 12px;
-  transition: background 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.15s ease,
+    margin-top 0.15s ease, transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sroadmap-item:hover {
@@ -2191,7 +2256,6 @@ body {
   justify-content: center;
   align-items: center;
   height: 100%;
-  position: relative;
 }
 
 .sroadmap-dot {
@@ -2206,29 +2270,27 @@ body {
   transition: opacity 0.12s ease;
 }
 
+/* 삭제 버튼은 카드 오른쪽 위 모서리에 별도로 떠서, 드래그 핸들과 겹치지 않게 한다 */
 .sroadmap-marker-actions {
   position: absolute;
-  left: 50%;
-  top: 50%;
+  top: 6px;
+  right: 6px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 4px;
   align-items: center;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: opacity 0.12s ease;
-  z-index: 2;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 3;
 }
 
 .sroadmap-item:hover .sroadmap-marker-actions,
 .sroadmap-item:focus-within .sroadmap-marker-actions {
   opacity: 1;
   pointer-events: auto;
-}
-.sroadmap-item:hover .sroadmap-dot,
-.sroadmap-item:focus-within .sroadmap-dot {
-  opacity: 0.12;
+  transform: translateY(0);
 }
 
 .sroadmap-remove-btn {
@@ -3494,7 +3556,7 @@ body {
     max-height: none;
   }
   .sroadmap-item {
-    grid-template-columns: 12px 110px minmax(0, 1fr);
+    grid-template-columns: 24px 110px minmax(0, 1fr);
   }
 }
 
@@ -3544,7 +3606,7 @@ body {
     height: 50vh;
   }
   .sroadmap-item {
-    grid-template-columns: 10px 88px minmax(0, 1fr);
+    grid-template-columns: 22px 88px minmax(0, 1fr);
     gap: 7px;
   }
   .sroadmap-timeline-list::before {
