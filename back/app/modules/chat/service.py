@@ -1327,6 +1327,31 @@ def _full_schedule_for_replace(
     return recommend_core.schedule_entries_for_api(sched) or []
 
 
+def _replace_drop_note(
+    new_id: int,
+    schedule_entries: list[dict],
+    row_by_id: dict[int, dict],
+    reg_f: Optional[str],
+    prov_f: Optional[str],
+) -> Optional[str]:
+    """단일 장소 교체(replace) 요청이 숙박/음식점 배치 제한 등으로 조용히 실패했을 때
+    그 이유를 답변에 덧붙일 문장으로 만든다. 성공했으면 None.
+    """
+    if not schedule_entries:
+        return None
+    placed_ids = {
+        int(e.get("placeId") or e.get("place_id") or 0) for e in schedule_entries
+    }
+    if int(new_id) in placed_ids:
+        return None
+    row = row_by_id.get(int(new_id))
+    if not row:
+        return None
+    reason = _explain_schedule_drop_reason(row, reg_f, prov_f)
+    name = str(row.get("name") or "")
+    return f" 다만 {name}{_josa_eun_neun(name)} {reason} 이번엔 반영하지 못했어요."
+
+
 def _count_cafe_ids(place_ids: list[int], row_by_id: dict[int, dict]) -> int:
     return sum(
         1
@@ -1335,22 +1360,37 @@ def _count_cafe_ids(place_ids: list[int], row_by_id: dict[int, dict]) -> int:
     )
 
 
+def _count_food_ids(place_ids: list[int], row_by_id: dict[int, dict]) -> int:
+    return sum(
+        1
+        for pid in place_ids or []
+        if is_food_place(row_by_id.get(int(pid)) or {})
+    )
+
+
 def _refine_swap_count(
     kept_len: int,
     user_message: str,
-    cafe_count: int,
+    theme_count: int,
+    *,
+    prefer_cafe: bool = False,
+    prefer_food: bool = False,
 ) -> int:
+    """카페뿐 아니라 맛집·식당 요청도 같은 방식으로 강제 스왑 대상이 되게 한다.
+
+    "카페 좀 더 넣어줘"만 남는 자리가 없을 때 기존 장소를 밀어내던 것을,
+    "맛집 좀 더 넣어줘"에도 똑같이 적용해서 두 요청이 비대칭으로 동작하지 않게 한다.
+    """
     text = str(user_message or "")
-    if kept_len <= 0:
+    if kept_len <= 0 or not (prefer_cafe or prefer_food):
         return 0
-    if re.search(r"카페\s*위주|위주.*카페|카페\s*중심|카페\s*메인", text):
+    theme_word = r"(카페|맛집|식당)"
+    if re.search(rf"{theme_word}\s*위주|위주.*{theme_word}|{theme_word}\s*중심|{theme_word}\s*메인", text):
         target = max(3, round(kept_len * 0.35))
-        return max(0, target - cafe_count)
-    if re.search(r"몇\s*개\s*빼|빼고.*(넣|추가)|추가.*카페|카페.*추가", text):
+        return max(0, target - theme_count)
+    if re.search(rf"몇\s*개\s*빼|빼고.*(넣|추가)|추가.*{theme_word}|{theme_word}.*추가", text):
         return max(2, min(5, kept_len // 3))
-    if message_requests_cafe_theme(text) and re.search(
-        r"위주|바꿔|조정|짜|넣|추가", text
-    ):
+    if re.search(r"위주|바꿔|조정|짜|넣|추가", text):
         return max(2, min(4, kept_len // 3))
     return 0
 
@@ -1361,6 +1401,7 @@ def _pick_ids_to_swap_out(
     count: int,
     *,
     prefer_cafe: bool,
+    prefer_food: bool = False,
 ) -> list[int]:
     if count <= 0 or not kept:
         return []
@@ -1370,7 +1411,9 @@ def _pick_ids_to_swap_out(
         score = 0
         if prefer_cafe and is_cafe_place(row):
             score += 1000
-        elif prefer_cafe and is_food_place(row):
+        elif prefer_food and is_food_place(row):
+            score += 1000
+        elif (prefer_cafe or prefer_food) and (is_cafe_place(row) or is_food_place(row)):
             score += 200
         if is_temple_place(row):
             score -= 80
@@ -1397,13 +1440,16 @@ def _refine_fill_slots(
     slots: int,
     *,
     prefer_cafe: bool,
+    prefer_food: bool = False,
 ) -> list[int]:
     if slots <= 0:
         return []
     candidate_limit = max(slots + 24, slots * 4)
     search_msg = user_message
     if prefer_cafe and "카페" not in search_msg:
-        search_msg = f"{search_msg} 여수 감성 카페 디저트 브런치"
+        search_msg = f"{search_msg} 감성 카페 디저트 브런치"
+    elif prefer_food and not re.search(r"맛집|식당|음식", search_msg):
+        search_msg = f"{search_msg} 로컬 맛집 음식점"
 
     baseline_ids = recommend_core.build_trip_baseline_ids(
         search_msg,
@@ -1423,6 +1469,10 @@ def _refine_fill_slots(
         cafe_first = [i for i in baseline_ids if is_cafe_place(row_by_id.get(i) or {})]
         other = [i for i in baseline_ids if i not in cafe_first]
         baseline_ids = cafe_first + other
+    elif prefer_food:
+        food_first = [i for i in baseline_ids if is_food_place(row_by_id.get(i) or {})]
+        other = [i for i in baseline_ids if i not in food_first]
+        baseline_ids = food_first + other
     baseline_ids = recommend_core.apply_trip_theme_priority(
         baseline_ids,
         row_by_id,
@@ -1520,6 +1570,7 @@ def _refine_current_itinerary(
     if patch["mustVisit"]:
         intent["mustVisit"] = patch["mustVisit"]
     prefer_cafe = message_requests_cafe_theme(user_message)
+    prefer_food = message_requests_food_theme(user_message) and not prefer_cafe
     if prefer_cafe:
         intent["themes"] = list(dict.fromkeys((intent.get("themes") or []) + ["cafe"]))
     if message_requests_food_theme(user_message) or prefer_cafe or re.search(
@@ -1566,10 +1617,13 @@ def _refine_current_itinerary(
             continue
         kept.append(int(pid))
 
-    swap_n = _refine_swap_count(len(kept), user_message, _count_cafe_ids(kept, row_by_id))
+    theme_count = _count_cafe_ids(kept, row_by_id) if prefer_cafe else _count_food_ids(kept, row_by_id)
+    swap_n = _refine_swap_count(
+        len(kept), user_message, theme_count, prefer_cafe=prefer_cafe, prefer_food=prefer_food
+    )
     if swap_n > 0:
         swap_out = _pick_ids_to_swap_out(
-            kept, row_by_id, swap_n, prefer_cafe=prefer_cafe
+            kept, row_by_id, swap_n, prefer_cafe=prefer_cafe, prefer_food=prefer_food
         )
         for pid in swap_out:
             row = row_by_id.get(int(pid))
@@ -1594,6 +1648,7 @@ def _refine_current_itinerary(
             exclude_set,
             slots,
             prefer_cafe=prefer_cafe,
+            prefer_food=prefer_food,
         )
 
     merged = (kept + [i for i in new_ids if i not in exclude_set])[:max_locations]
@@ -1610,7 +1665,7 @@ def _refine_current_itinerary(
             for i in new_ids[:3]
             if row_by_id.get(i)
         ]
-        label = "카페" if prefer_cafe else "추천 장소"
+        label = "카페" if prefer_cafe else ("맛집" if prefer_food else "추천 장소")
         if added_names:
             parts.append(
                 f"{label} 위주로 {', '.join(added_names)}"
@@ -1624,7 +1679,11 @@ def _refine_current_itinerary(
         )
     elif prefer_cafe and _count_cafe_ids(merged, row_by_id) == 0:
         parts.append(
-            "일정에 카페가 아직 없어요. 「여수 카페 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
+            "일정에 카페가 아직 없어요. 「카페 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
+        )
+    elif prefer_food and _count_food_ids(merged, row_by_id) == 0:
+        parts.append(
+            "일정에 맛집이 아직 없어요. 「맛집 위주로 몇 곳 빼고 다시」처럼 다시 요청해 주세요."
         )
 
     answer = " ".join(parts) if parts else "일정을 조정했어요."
@@ -1773,7 +1832,7 @@ def _refine_single_day_itinerary(
         shown = "·".join(removed_labels[:3])
         if len(removed_labels) > 3:
             shown += f" 외 {len(removed_labels) - 3}곳"
-        parts.append(f"{shown}을(를) 반영했어요.")
+        parts.append(f"{shown}{_josa_eun_neun(shown)} 이번 일정에서 뺐어요.")
     if new_day_ids:
         names = [
             str(row_by_id[i].get("name") or "")
@@ -2965,6 +3024,7 @@ def get_trip_chat_result(
 
     if not api_key:
         schedule_out = trip_schedule
+        replace_drop_note = None
         if (
             ai_detected_action == "replace"
             and ai_excluded_id
@@ -2982,6 +3042,9 @@ def get_trip_chat_result(
                 row_by_id,
                 transport_mode=transport_mode,
             )
+            replace_drop_note = _replace_drop_note(
+                recommended_ids[0], schedule_out, row_by_id, reg_f, prov_f
+            )
         personalized_answer = (
             _build_personalized_trip_answer(
                 recommended_ids,
@@ -2998,6 +3061,8 @@ def get_trip_chat_result(
             if ai_detected_action in ("recommend", "replan", "replace")
             else (dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows))
         )
+        if replace_drop_note:
+            personalized_answer = f"{personalized_answer}{replace_drop_note}"
         return _pack_trip_response(
             answer=personalized_answer,
             recommended_ids=recommended_ids,
@@ -3009,6 +3074,7 @@ def get_trip_chat_result(
 
     if dspy_trip_ids:
         replace_schedule = trip_schedule
+        replace_drop_note = None
         if (
             ai_detected_action == "replace"
             and ai_excluded_id
@@ -3025,6 +3091,9 @@ def get_trip_chat_result(
                 prov_f,
                 row_by_id,
                 transport_mode=transport_mode,
+            )
+            replace_drop_note = _replace_drop_note(
+                recommended_ids[0], replace_schedule, row_by_id, reg_f, prov_f
             )
         fallback_dspy_answer = dspy_trip_answer or _trip_answer_from_ids(recommended_ids, rows)
         personalized_answer = (
@@ -3043,6 +3112,8 @@ def get_trip_chat_result(
             if ai_detected_action in ("recommend", "replan", "replace")
             else fallback_dspy_answer
         )
+        if replace_drop_note:
+            personalized_answer = f"{personalized_answer}{replace_drop_note}"
         return _pack_trip_response(
             answer=personalized_answer,
             recommended_ids=recommended_ids,
@@ -3167,6 +3238,7 @@ def get_trip_chat_result(
             transport_mode=transport_mode,
         )
         trip_schedule_out = trip_schedule_llm
+        replace_drop_note = None
         if (
             ai_detected_action == "replace"
             and ai_excluded_id
@@ -3183,6 +3255,9 @@ def get_trip_chat_result(
                 prov_f,
                 row_by_id,
                 transport_mode=transport_mode,
+            )
+            replace_drop_note = _replace_drop_note(
+                ids[0], trip_schedule_out, row_by_id, reg_f, prov_f
             )
         fallback_llm_answer = llm_answer.strip() or _trip_answer_from_ids(ids, rows)
         answer = (
@@ -3201,6 +3276,8 @@ def get_trip_chat_result(
             if ai_detected_action in ("recommend", "replan", "replace")
             else fallback_llm_answer
         )
+        if replace_drop_note:
+            answer = f"{answer}{replace_drop_note}"
 
         return _pack_trip_response(
             answer=answer,
