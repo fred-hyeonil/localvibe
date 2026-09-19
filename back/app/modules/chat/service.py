@@ -1648,6 +1648,43 @@ def _detect_named_removals(
     return to_remove
 
 
+_PURE_ADD_RE = re.compile(r"추가|넣어|넣고|채워\s*줘|더\s*넣|더\s*추가")
+_REPLACE_IMPLYING_RE = re.compile(r"바꿔|바꾸|교체|다른\s*(곳|데|장소)|다른데")
+_ADD_COUNT_DIGIT_RE = re.compile(r"(\d+)\s*(곳|개|군데)")
+_ADD_COUNT_WORD_RE = {
+    "한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5,
+}
+
+
+def _is_pure_addition_request(user_message: str) -> bool:
+    """"카페 추가해줘"처럼 순수하게 더 넣어달라는 요청인지 판별한다.
+
+    "빼고 추가해줘"(_REMOVE_INTENT_RE)나 "다른 곳으로 바꿔줘"(_REPLACE_IMPLYING_RE)처럼
+    기존 장소를 없애는 의미가 섞이면 False - 그런 경우는 기존 교체(swap) 로직을 그대로 탄다.
+    순수 추가 요청은 기존 로드맵을 건드리지 않고 새 장소만 얹어야 하기 때문.
+    """
+    text = str(user_message or "")
+    if _REMOVE_INTENT_RE.search(text):
+        return False
+    if _REPLACE_IMPLYING_RE.search(text):
+        return False
+    return bool(_PURE_ADD_RE.search(text))
+
+
+def _detect_requested_add_count(user_message: str, default: int = 2) -> int:
+    text = str(user_message or "")
+    m = _ADD_COUNT_DIGIT_RE.search(text)
+    if m:
+        try:
+            return max(1, min(6, int(m.group(1))))
+        except ValueError:
+            pass
+    for word, n in _ADD_COUNT_WORD_RE.items():
+        if re.search(rf"{word}\s*(곳|개|군데)", text):
+            return max(1, min(6, n))
+    return default
+
+
 def _refine_current_itinerary(
     user_message: str,
     current_location_ids: list[int],
@@ -1729,8 +1766,9 @@ def _refine_current_itinerary(
             continue
         kept.append(int(pid))
 
+    pure_add = _is_pure_addition_request(user_message)
     theme_count = _count_cafe_ids(kept, row_by_id) if prefer_cafe else _count_food_ids(kept, row_by_id)
-    swap_n = _refine_swap_count(
+    swap_n = 0 if pure_add else _refine_swap_count(
         len(kept), user_message, theme_count, prefer_cafe=prefer_cafe, prefer_food=prefer_food
     )
     if swap_n > 0:
@@ -1743,7 +1781,14 @@ def _refine_current_itinerary(
                 removed_labels.append(str(row.get("name") or "장소"))
         kept = [p for p in kept if p not in swap_out]
 
-    slots = max(0, max_locations - len(kept))
+    if pure_add:
+        # "카페 추가해줘"류는 기존 로드맵을 그대로 두고 요청한 만큼만 더 얹는다.
+        # max_locations(일차별 정원)에 막혀 잘려나가지 않도록 정원 자체를 늘린다.
+        slots = _detect_requested_add_count(user_message)
+        effective_max_locations = len(kept) + slots
+    else:
+        slots = max(0, max_locations - len(kept))
+        effective_max_locations = max_locations
     exclude_set = set(kept)
     new_ids: list[int] = []
 
@@ -1763,7 +1808,7 @@ def _refine_current_itinerary(
             prefer_food=prefer_food,
         )
 
-    merged = (kept + [i for i in new_ids if i not in exclude_set])[:max_locations]
+    merged = (kept + [i for i in new_ids if i not in exclude_set])[:effective_max_locations]
 
     # 왼쪽 로드맵이 실제 변경 결과를 보여주니, 채팅에는 "무엇을 무엇으로 바꿨는지"를
     # 장황하게 나열하지 않고 짧은 완료 안내만 준다. 다만 요청이 반영되지 않았을 때는
