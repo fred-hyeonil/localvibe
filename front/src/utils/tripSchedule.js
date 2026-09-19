@@ -44,8 +44,14 @@ function recomputeTravelTimesForDay(items) {
   return items.map(loc => {
     // tripLat/tripLng는 채팅 응답 직후에만 붙는 값이라, 새로고침으로 복원됐거나
     // 갤러리에서 직접 추가한 장소는 이게 없고 기본 latitude/longitude만 있다.
-    const lat = Number(loc.tripLat ?? loc.latitude);
-    const lng = Number(loc.tripLng ?? loc.longitude);
+    // 좌표가 아예 없는 장소는 tripLat/latitude 둘 다 null인데, Number(null)은 NaN이 아니라
+    // 0을 반환해서 "좌표 (0,0)"(대서양 한복판)으로 잘못 취급되어 버렸다 — 그 결과 실제
+    // 좌표와의 haversine 거리가 수천 km로 튀면서 "이동 약 5만분" 같은 값이 나왔다.
+    // null/undefined는 Number()에 넘기지 않고 먼저 NaN으로 처리해야 한다.
+    const rawLat = loc.tripLat ?? loc.latitude;
+    const rawLng = loc.tripLng ?? loc.longitude;
+    const lat = rawLat == null ? NaN : Number(rawLat);
+    const lng = rawLng == null ? NaN : Number(rawLng);
     const hasCoord = Number.isFinite(lat) && Number.isFinite(lng);
     let travelMinutes = null;
     if (prevCoord && hasCoord) {
@@ -233,7 +239,7 @@ export function applyScheduleToRegions(regions, schedule) {
   });
 }
 
-function finalizeItineraryOrder(locations, days) {
+export function finalizeItineraryOrder(locations, days) {
   const dayCount = Math.max(1, Number(days) || 1);
   const buckets = new Map();
 

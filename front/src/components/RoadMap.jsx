@@ -1,12 +1,11 @@
-import { useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useMemo, useRef, useState } from 'react';
+import { Reorder, motion, useDragControls } from 'framer-motion';
 import { resolveBackendMediaUrl } from '../utils/apiMediaUrl';
 import {
   displayPeriod,
+  finalizeItineraryOrder,
   formatDayPeriodSummary,
-  groupDayItemsByPeriodBand,
   moveLocationToDay,
-  moveLocationToIndex,
   shouldShowCardPeriod,
 } from '../utils/tripSchedule';
 
@@ -42,6 +41,10 @@ const DAY_DUO_PALETTE = [
   ['#5a6b8c', '#2e3a52'],
   ['#8a7a4f', '#4a4020'],
 ];
+
+// 실제 카드를 실시간으로 밀어내는(Trello류) 느낌을 내려고, 카드가 자리를 옮길 때는
+// 스프링 대신 짧고 딱 멈추는 easeOut을 쓴다.
+const LAYOUT_TRANSITION = { layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } };
 
 function daySummaryLabel(rawLocs) {
   const names = rawLocs.filter(Boolean).map(l => String(l?.name || '').trim()).filter(Boolean);
@@ -88,6 +91,138 @@ function pickAddress(loc) {
   return matched ? matched[1].trim() : String(loc?.region ?? '').trim();
 }
 
+/** 카드 한 장. 드래그는 핸들(⠿)을 눌렀을 때만 시작되도록 dragControls를 직접 다룬다 —
+ * 카드 전체가 드래그 대상이면 상세보기 클릭·삭제 버튼과 자꾸 부딪힌다. */
+function PlaceCard({
+  node,
+  isFirstInDay,
+  isSelected,
+  isDraggingThis,
+  dragEnabled,
+  onNodeClick,
+  onRemoveNode,
+  onCardDrag,
+  onCardDragStart,
+  onCardDragEnd,
+}) {
+  const dragControls = useDragControls();
+  const mapLink = kakaoMapLink(node);
+
+  return (
+    <Reorder.Item
+      value={node.id}
+      as="article"
+      id={`roadmap-place-${node.clickId}`}
+      layout="position"
+      layoutRoot
+      drag={dragEnabled ? 'y' : false}
+      dragListener={false}
+      dragControls={dragControls}
+      dragElastic={0.06}
+      dragMomentum={false}
+      whileDrag={{
+        boxShadow: '0 14px 30px rgba(0,0,0,0.18)',
+        scale: 1.015,
+      }}
+      onDragStart={() => onCardDragStart(node)}
+      onDrag={(event, info) => onCardDrag(info)}
+      onDragEnd={(event, info) => onCardDragEnd(node, info)}
+      transition={LAYOUT_TRANSITION}
+      className={`sroadmap-item ${isSelected ? 'selected' : ''} ${
+        isDraggingThis ? 'sroadmap-item--dragging' : ''
+      }`}
+      custom={node.renderIndex}
+      variants={itemVariants}
+    >
+      {!isFirstInDay && Number.isFinite(node.travelMinutes) ? (
+        <div className="sroadmap-travel-hint sroadmap-travel-hint--inline" aria-hidden="true">
+          <span className="sroadmap-travel-label">
+            {TRAVEL_MODE_LABEL[node.travelMode] || '이동'} {node.travelMinutes}분
+          </span>
+        </div>
+      ) : null}
+
+      <div className="sroadmap-marker">
+        {dragEnabled ? (
+          <span
+            className="sroadmap-drag-handle"
+            aria-hidden="true"
+            title="드래그하여 이동"
+            style={{ touchAction: 'none' }}
+            onPointerDown={event => dragControls.start(event)}
+          >
+            <DragHandleIcon />
+          </span>
+        ) : (
+          <span className="sroadmap-dot" />
+        )}
+        <div className="sroadmap-marker-actions" aria-label={`${node.name} 관리`}>
+          {onRemoveNode ? (
+            <button
+              className="sroadmap-remove-btn"
+              type="button"
+              aria-label={`${node.name} 제거`}
+              onClick={event => {
+                event.stopPropagation();
+                event.currentTarget.blur();
+                onRemoveNode(node.clickId);
+              }}
+            >
+              <DeleteIcon />
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {node.imageUrl ? (
+        <button
+          className="sroadmap-image-trigger"
+          type="button"
+          aria-label={`${node.name} 상세 보기`}
+          onClick={() => onNodeClick?.(node.clickId)}
+        >
+          <div className="sroadmap-thumb-wrap">
+            <img
+              className="sroadmap-thumb"
+              src={node.imageUrl}
+              alt={node.name}
+              loading="lazy"
+              draggable={false}
+              referrerPolicy="no-referrer"
+              onError={event => {
+                event.currentTarget.closest('.sroadmap-image-trigger').style.display = 'none';
+              }}
+            />
+          </div>
+        </button>
+      ) : null}
+
+      <div
+        className="sroadmap-body"
+        onClick={() => onNodeClick?.(node.clickId)}
+        style={{ cursor: 'pointer' }}
+      >
+        <h4 className="sroadmap-title">
+          {node.meal ? <span className="sroadmap-meal-chip">{node.meal}</span> : null}
+          {node.name}
+        </h4>
+        {node.address && <p className="sroadmap-address">{node.address}</p>}
+        {mapLink && (
+          <a
+            className="sroadmap-map-link"
+            href={mapLink}
+            target="_blank"
+            rel="noreferrer"
+            onClick={event => event.stopPropagation()}
+          >
+            지도에서 보기
+          </a>
+        )}
+      </div>
+    </Reorder.Item>
+  );
+}
+
 export default function RoadMap({
   locations = [],
   tripDayCount = 1,
@@ -98,8 +233,10 @@ export default function RoadMap({
   selectedId = null,
   isModalOpen = false,
 }) {
-  const [dragIndex, setDragIndex] = useState(null);
-  const [dropHint, setDropHint] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
+  const [crossDayHoverDay, setCrossDayHoverDay] = useState(null);
+  const dayRefs = useRef({});
+  const originDayRef = useRef(null);
 
   const nodes = useMemo(() => {
     return locations.map((loc, index) => ({
@@ -137,21 +274,13 @@ export default function RoadMap({
       });
     });
 
-    const maxFromNodes = byDay.size
-      ? Math.max(...byDay.keys())
-      : 0;
-    const totalDays = Math.max(
-      1,
-      Number(tripDayCount) || maxFromNodes || 1,
-      maxFromNodes,
-    );
+    const maxFromNodes = byDay.size ? Math.max(...byDay.keys()) : 0;
+    const totalDays = Math.max(1, Number(tripDayCount) || maxFromNodes || 1, maxFromNodes);
 
     return Array.from({ length: totalDays }, (_, i) => {
       const dayNumber = i + 1;
       const items = byDay.get(dayNumber) || [];
-      const rawLocs = items.map(it =>
-        locations.find((l, idx) => idx === it.renderIndex),
-      );
+      const rawLocs = items.map(it => locations.find((l, idx) => idx === it.renderIndex));
       const heroSourceRaw = rawLocs.find(l => l?.imageUrl);
       const totalTravelMinutes = items.reduce(
         (sum, it) => sum + (Number.isFinite(it.travelMinutes) ? it.travelMinutes : 0),
@@ -164,9 +293,7 @@ export default function RoadMap({
         periodSummary: formatDayPeriodSummary(rawLocs.filter(Boolean)),
         showCardPeriod: shouldShowCardPeriod(items.length),
         concept: daySummaryLabel(rawLocs),
-        heroImage: heroSourceRaw
-          ? resolveBackendMediaUrl(heroSourceRaw.imageUrl)
-          : null,
+        heroImage: heroSourceRaw ? resolveBackendMediaUrl(heroSourceRaw.imageUrl) : null,
         totalTravelMinutes,
       };
     });
@@ -174,264 +301,95 @@ export default function RoadMap({
 
   const effectiveDays = Math.max(
     1,
-    Number(tripDayCount) ||
-      (daySections.length
-        ? daySections[daySections.length - 1].dayNumber
-        : 1),
+    Number(tripDayCount) || (daySections.length ? daySections[daySections.length - 1].dayNumber : 1),
   );
 
-  function clearDrag() {
-    setDragIndex(null);
-    setDropHint(null);
-  }
-
-  // dragover는 마우스가 움직이는 동안 아주 자주(프레임마다) 발생한다. 매번 새 객체로
-  // setDropHint를 부르면 같은 자리 위에 머물러 있을 때도 계속 리렌더가 일어나 드래그가
-  // 버벅였다. 값이 실제로 바뀔 때만 state를 갱신하도록 막는다.
-  function setItemDropHint(index) {
-    setDropHint(prev => (prev?.type === 'item' && prev.index === index ? prev : { type: 'item', index }));
-  }
-  function setDayDropHint(day) {
-    setDropHint(prev => (prev?.type === 'day' && prev.day === day ? prev : { type: 'day', day }));
-  }
-  function setDayEndDropHint(day) {
-    setDropHint(prev => (prev?.type === 'day-end' && prev.day === day ? prev : { type: 'day-end', day }));
-  }
-
-  function commitReorder(nextLocations) {
-    onItineraryChange?.(nextLocations);
-    clearDrag();
-  }
-
-  function handleDropOnDay(targetDay) {
-    if (dragIndex == null || !onItineraryChange) {
-      return;
-    }
-    commitReorder(
-      moveLocationToDay(
-        locations,
-        dragIndex,
-        targetDay,
-        effectiveDays,
-        itemsPerDay,
-      ),
-    );
-  }
-
-  function handleDropBeforeItem(toIndex) {
-    if (dragIndex == null || !onItineraryChange) {
-      return;
-    }
-    commitReorder(
-      moveLocationToIndex(
-        locations,
-        dragIndex,
-        toIndex,
-        effectiveDays,
-        itemsPerDay,
-      ),
-    );
-  }
+  const dayByNodeId = useMemo(() => {
+    const map = new Map();
+    daySections.forEach(section => {
+      section.items.forEach(it => map.set(it.id, section.dayNumber));
+    });
+    return map;
+  }, [daySections]);
 
   const dragEnabled = Boolean(onItineraryChange);
 
-  function renderPlaceCard(node, section, band) {
-    const isSelected =
-      selectedId != null &&
-      (selectedId === node.clickId ||
-        String(selectedId) === String(node.clickId));
-    const isDragging = dragIndex === node.renderIndex;
-    const itemDropActive =
-      dropHint?.type === 'item' && dropHint.index === node.renderIndex;
-    const mapLink = kakaoMapLink(node);
+  // 포인터의 페이지 좌표가 어느 날짜 섹션 위에 있는지 찾는다. 다른 날로 드래그했을 때
+  // 그 날로 옮기기 위한 판정에 쓴다.
+  function findDayAtPoint(point) {
+    for (const [dayKey, el] of Object.entries(dayRefs.current)) {
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      const pageLeft = rect.left + window.scrollX;
+      const pageRight = rect.right + window.scrollX;
+      const pageTop = rect.top + window.scrollY;
+      const pageBottom = rect.bottom + window.scrollY;
+      if (point.x >= pageLeft && point.x <= pageRight && point.y >= pageTop && point.y <= pageBottom) {
+        return Number(dayKey);
+      }
+    }
+    return null;
+  }
 
-    return (
-      <motion.article
-        key={`${node.id}-${node.renderIndex}`}
-        id={`roadmap-place-${node.clickId}`}
-        layout="position"
-        className={`sroadmap-item ${isSelected ? 'selected' : ''} ${
-          isDragging ? 'sroadmap-item--dragging' : ''
-        } ${itemDropActive ? 'sroadmap-item--drop-before' : ''}`}
-        custom={node.renderIndex}
-        variants={itemVariants}
-        draggable={dragEnabled}
-        onDragStart={
-          dragEnabled
-            ? event => {
-                setDragIndex(node.renderIndex);
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData(
-                  'text/plain',
-                  String(node.renderIndex),
-                );
-              }
-            : undefined
-        }
-        onDragEnd={dragEnabled ? clearDrag : undefined}
-        onDragOver={
-          dragEnabled
-            ? event => {
-                event.preventDefault();
-                // 이 이벤트가 부모(day-section)로 계속 버블링되면, 부모의 onDragOver가
-                // 바로 뒤이어 dropHint를 'day'로 덮어써 버려서 카드 위에 정확히 올려도
-                // "여기에 놓기" 표시가 뜨지 않는 문제가 있었다. 여기서 멈춰야 한다.
-                event.stopPropagation();
-                setItemDropHint(node.renderIndex);
-              }
-            : undefined
-        }
-        onDrop={
-          dragEnabled
-            ? event => {
-                event.preventDefault();
-                event.stopPropagation();
-                handleDropBeforeItem(node.renderIndex);
-              }
-            : undefined
-        }
-      >
-        <div className="sroadmap-marker">
-          {dragEnabled ? (
-            <span
-              className="sroadmap-drag-handle"
-              aria-hidden="true"
-              title="드래그하여 이동"
-            >
-              <DragHandleIcon />
-            </span>
-          ) : (
-            <span className="sroadmap-dot" />
-          )}
-          <div
-            className="sroadmap-marker-actions"
-            aria-label={`${node.name} 관리`}
-          >
-            {onRemoveNode ? (
-              <button
-                className="sroadmap-remove-btn"
-                type="button"
-                aria-label={`${node.name} 제거`}
-                onClick={event => {
-                  event.stopPropagation();
-                  event.currentTarget.blur();
-                  onRemoveNode(node.clickId);
-                }}
-              >
-                <DeleteIcon />
-              </button>
-            ) : null}
-          </div>
-        </div>
+  function handleCardDragStart(node) {
+    setDraggingId(node.id);
+    originDayRef.current = dayByNodeId.get(node.id) ?? null;
+  }
 
-        {node.imageUrl ? (
-          <button
-            className="sroadmap-image-trigger"
-            type="button"
-            aria-label={`${node.name} 상세 보기`}
-            onClick={() => onNodeClick?.(node.clickId)}
-          >
-            <div className="sroadmap-thumb-wrap">
-              <img
-                className="sroadmap-thumb"
-                src={node.imageUrl}
-                alt={node.name}
-                loading="lazy"
-                draggable={false}
-                referrerPolicy="no-referrer"
-                onError={event => {
-                  event.currentTarget.closest(
-                    '.sroadmap-image-trigger',
-                  ).style.display = 'none';
-                }}
-              />
-            </div>
-          </button>
-        ) : null}
+  function handleCardDrag(info) {
+    const hoveredDay = findDayAtPoint(info.point);
+    setCrossDayHoverDay(hoveredDay != null && hoveredDay !== originDayRef.current ? hoveredDay : null);
+  }
 
-        <div
-          className="sroadmap-body"
-          onClick={() => onNodeClick?.(node.clickId)}
-          style={{ cursor: 'pointer' }}
-        >
-          <h4 className="sroadmap-title">
-            {node.meal ? <span className="sroadmap-meal-chip">{node.meal}</span> : null}
-            {node.name}
-          </h4>
-          {node.address && (
-            <p className="sroadmap-address">{node.address}</p>
-          )}
-          {mapLink && (
-            <a
-              className="sroadmap-map-link"
-              href={mapLink}
-              target="_blank"
-              rel="noreferrer"
-              onClick={event => event.stopPropagation()}
-            >
-              지도에서 보기
-            </a>
-          )}
-        </div>
-      </motion.article>
-    );
+  function handleCardDragEnd(node, info) {
+    const originDay = originDayRef.current;
+    setDraggingId(null);
+    setCrossDayHoverDay(null);
+    originDayRef.current = null;
+    if (!dragEnabled) return;
+
+    const targetDay = findDayAtPoint(info.point);
+    if (targetDay == null || targetDay === originDay) {
+      // 같은 날 안에서의 순서 변경은 Reorder.Group의 onReorder가 이미 실시간으로 반영했다.
+      return;
+    }
+    const fromIndex = locations.findIndex(loc => String(loc?.id) === String(node.id));
+    if (fromIndex === -1) return;
+    onItineraryChange?.(moveLocationToDay(locations, fromIndex, targetDay, effectiveDays, itemsPerDay));
+  }
+
+  // 하루 안에서의 실시간 재정렬: Reorder.Group이 넘겨주는 "이 날의 새 id 순서"를
+  // 전체 로드맵 배열에 그대로 반영한다. 다른 날짜 항목은 원래 순서를 그대로 둔다.
+  function handleReorderWithinDay(dayNumber, newDayIdOrder) {
+    if (!dragEnabled) return;
+    const idToLocation = new Map(locations.map(loc => [String(loc?.id), loc]));
+    let cursor = 0;
+    const next = locations.map(loc => {
+      if (dayByNodeId.get(String(loc?.id)) === dayNumber) {
+        const id = newDayIdOrder[cursor];
+        cursor += 1;
+        return idToLocation.get(String(id)) ?? loc;
+      }
+      return loc;
+    });
+    onItineraryChange?.(finalizeItineraryOrder(next, effectiveDays));
   }
 
   return (
-    <div
-      className={`sroadmap-container sroadmap-timeline ${
-        isModalOpen ? 'modal-open' : ''
-      }`}
-    >
-      <motion.div
-        className="sroadmap-timeline-list"
-        initial="hidden"
-        animate="visible"
-        variants={wrapV}
-      >
+    <div className={`sroadmap-container sroadmap-timeline ${isModalOpen ? 'modal-open' : ''}`}>
+      <motion.div className="sroadmap-timeline-list" initial="hidden" animate="visible" variants={wrapV}>
         {daySections.map(section => {
-          const dayDropActive =
-            dropHint?.type === 'day' && dropHint.day === section.dayNumber;
-
-          const periodBands = groupDayItemsByPeriodBand(section.items, locations);
-          const bandByRenderIndex = new Map();
-          periodBands.forEach(band => {
-            band.items.forEach(node => {
-              bandByRenderIndex.set(node.renderIndex, band);
-            });
-          });
+          const isCrossDayTarget = crossDayHoverDay === section.dayNumber;
 
           return (
             <section
               key={`day-${section.dayNumber}`}
-              className={`sroadmap-day-section ${
-                section.isEmpty ? 'sroadmap-day-section--empty' : ''
-              } ${dayDropActive ? 'sroadmap-day-section--drop-target' : ''}`}
-              onDragOver={
-                dragEnabled
-                  ? event => {
-                      event.preventDefault();
-                      setDayDropHint(section.dayNumber);
-                    }
-                  : undefined
-              }
-              onDragLeave={
-                dragEnabled
-                  ? () => {
-                      setDropHint(prev =>
-                        prev?.type === 'day' && prev.day === section.dayNumber ? null : prev,
-                      );
-                    }
-                  : undefined
-              }
-              onDrop={
-                dragEnabled
-                  ? event => {
-                      event.preventDefault();
-                      handleDropOnDay(section.dayNumber);
-                    }
-                  : undefined
-              }
+              ref={el => {
+                dayRefs.current[section.dayNumber] = el;
+              }}
+              className={`sroadmap-day-section ${section.isEmpty ? 'sroadmap-day-section--empty' : ''} ${
+                isCrossDayTarget ? 'sroadmap-day-section--drop-target' : ''
+              }`}
             >
               {!section.isEmpty ? (
                 <div
@@ -444,17 +402,13 @@ export default function RoadMap({
                       : {
                           backgroundImage: `linear-gradient(155deg, ${
                             DAY_DUO_PALETTE[(section.dayNumber - 1) % DAY_DUO_PALETTE.length][0]
-                          }, ${
-                            DAY_DUO_PALETTE[(section.dayNumber - 1) % DAY_DUO_PALETTE.length][1]
-                          })`,
+                          }, ${DAY_DUO_PALETTE[(section.dayNumber - 1) % DAY_DUO_PALETTE.length][1]})`,
                         }
                   }
                 >
                   <span className="sroadmap-day-hero-day">
                     {section.dayNumber}일차 · {section.items.length}곳
-                    {section.totalTravelMinutes > 0
-                      ? ` · 이동 약 ${section.totalTravelMinutes}분`
-                      : ''}
+                    {section.totalTravelMinutes > 0 ? ` · 이동 약 ${section.totalTravelMinutes}분` : ''}
                   </span>
                   <span className="sroadmap-day-hero-concept">{section.concept}</span>
                 </div>
@@ -470,7 +424,7 @@ export default function RoadMap({
                 {section.periodSummary ? (
                   <p className="sroadmap-day-period-summary">{section.periodSummary}</p>
                 ) : null}
-                {dragEnabled && dayDropActive ? (
+                {dragEnabled && isCrossDayTarget ? (
                   <span className="sroadmap-day-drop-label">놓으면 이 날로 이동</span>
                 ) : null}
                 {section.isEmpty && dragEnabled ? (
@@ -478,88 +432,37 @@ export default function RoadMap({
                 ) : null}
               </div>
 
-              <div
-                className={`sroadmap-day-path ${
-                  dragIndex != null ? 'sroadmap-day-path--dragging' : ''
-                }`}
-              >
-                {section.items.map((node, i) => {
-                  const band = bandByRenderIndex.get(node.renderIndex) || {
-                    key: 'flex',
-                    label: '순서',
-                    hint: '',
-                  };
-                  const showDropSlot =
-                    dragEnabled &&
-                    dragIndex != null &&
-                    dragIndex !== node.renderIndex &&
-                    dropHint?.type === 'item' &&
-                    dropHint.index === node.renderIndex;
-                  return (
-                    <div key={`flow-${node.renderIndex}`} className="sroadmap-item-flow">
-                      {i > 0 && Number.isFinite(node.travelMinutes) ? (
-                        <div className="sroadmap-travel-hint" aria-hidden="true">
-                          <span className="sroadmap-travel-line" />
-                          <span className="sroadmap-travel-label">
-                            {TRAVEL_MODE_LABEL[node.travelMode] || '이동'} {node.travelMinutes}분
-                          </span>
-                        </div>
-                      ) : null}
-                      <AnimatePresence initial={false}>
-                        {showDropSlot ? (
-                          <motion.div
-                            key="drop-slot"
-                            layout
-                            className="sroadmap-drop-slot"
-                            aria-hidden="true"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 58 }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.16, ease: 'easeOut' }}
-                          >
-                            <span className="sroadmap-drop-slot-label">여기에 놓기</span>
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-                      {renderPlaceCard(node, section, band)}
-                    </div>
-                  );
-                })}
-                {!section.isEmpty && dragEnabled && dragIndex != null ? (
-                  <div
-                    className="sroadmap-day-end-zone"
-                    onDragOver={event => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setDayEndDropHint(section.dayNumber);
-                    }}
-                    onDrop={event => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleDropOnDay(section.dayNumber);
-                    }}
-                  >
-                    <AnimatePresence initial={false}>
-                      {dropHint?.type === 'day-end' && dropHint.day === section.dayNumber ? (
-                        <motion.div
-                          key="drop-slot-end"
-                          layout
-                          className="sroadmap-drop-slot"
-                          aria-hidden="true"
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 58 }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.16, ease: 'easeOut' }}
-                        >
-                          <span className="sroadmap-drop-slot-label">
-                            {section.dayNumber}일차 맨 뒤에 놓기
-                          </span>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-                ) : null}
-              </div>
+              {section.isEmpty ? (
+                <div className="sroadmap-day-path" />
+              ) : (
+                <Reorder.Group
+                  as="div"
+                  axis="y"
+                  layoutScroll={false}
+                  className="sroadmap-day-path"
+                  values={section.items.map(it => it.id)}
+                  onReorder={newIds => handleReorderWithinDay(section.dayNumber, newIds)}
+                >
+                  {section.items.map((node, i) => (
+                    <PlaceCard
+                      key={node.id}
+                      node={node}
+                      isFirstInDay={i === 0}
+                      isSelected={
+                        selectedId != null &&
+                        (selectedId === node.clickId || String(selectedId) === String(node.clickId))
+                      }
+                      isDraggingThis={draggingId === node.id}
+                      dragEnabled={dragEnabled}
+                      onNodeClick={onNodeClick}
+                      onRemoveNode={onRemoveNode}
+                      onCardDrag={handleCardDrag}
+                      onCardDragStart={handleCardDragStart}
+                      onCardDragEnd={handleCardDragEnd}
+                    />
+                  ))}
+                </Reorder.Group>
+              )}
             </section>
           );
         })}
