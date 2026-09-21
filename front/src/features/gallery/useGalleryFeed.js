@@ -382,12 +382,30 @@ export function useGalleryFeed() {
   // 표시용 regions (regionMap으로 필드 보강)
   const galleryDisplayRegions = useMemo(() => {
     // 검색 모드: 검색 결과 전체 표시
-    // 기본 모드: shuffledAll에서 displayedCount만큼 페이지네이션
-    const source = vectorMode
-      ? displayedRegions
-      : shuffledAll.length > 0
-        ? shuffledAll.slice(0, displayedCount)
-        : displayedRegions;
+    // 기본 모드: 먼저 도착한 피드를 앞에 두고, 전체 목록(shuffledAll)을 뒤에 이어 붙인다.
+    //
+    // 예전에는 shuffledAll이 채워지는 순간 그쪽으로 통째로 갈아탔다. 두 요청(/regions/feed와
+    // /regions)의 도착 시간이 다르면 먼저 뜬 카드 30장이 전혀 다른 카드로 바뀌어 보였다.
+    // 로컬에서는 둘이 거의 동시에 와서 티가 안 났고, 배포 환경에서만 드러났다.
+    let source;
+    if (vectorMode) {
+      source = displayedRegions;
+    } else if (shuffledAll.length > 0) {
+      const seen = new Set(
+        displayedRegions.map(r => Number(r?.id)).filter(Number.isFinite),
+      );
+      source = [...displayedRegions];
+      for (const item of shuffledAll) {
+        if (source.length >= displayedCount) break;
+        const id = Number(item?.id);
+        if (Number.isFinite(id) && seen.has(id)) continue;
+        if (Number.isFinite(id)) seen.add(id);
+        source.push(item);
+      }
+      source = source.slice(0, displayedCount);
+    } else {
+      source = displayedRegions;
+    }
 
     return source.map(r => {
       const id = Number(r?.id);
