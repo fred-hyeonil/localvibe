@@ -591,7 +591,7 @@ const handleRequestAddToTrip = useCallback(
             </div>
             <div className="main-footer-bottom">
               © {new Date().getFullYear()} LocalVibe. All rights reserved.
-              <span style={{ marginLeft: '1rem', opacity: 0.7 }}>출처: ⓒ한국관광공사 · 전남광주통합특별시</span>
+              <span style={{ marginLeft: '1rem' }}>출처: ⓒ한국관광공사 · 전남광주통합특별시</span>
             </div>
           </footer>
         </main>
